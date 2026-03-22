@@ -3,7 +3,8 @@ const path = require('path');
 require('dotenv').config();
 
 const dbFile = process.env.DEV === 'true' ? 'data_dev.db' : 'data.db';
-const db = new Database(path.join(__dirname, '..', dbFile));
+const dbDir  = process.env.DATA_DIR || path.join(__dirname, '..');
+const db = new Database(path.join(dbDir, dbFile));
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
