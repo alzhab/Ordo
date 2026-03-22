@@ -1,0 +1,499 @@
+const { Markup } = require('telegraf');
+const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId } = require('../helpers');
+const { pendingTasks, taskFilters, getFilter } = require('../state');
+const { fuzzyMatch } = require('../fuzzy');
+const {
+  STATUS_LABEL_RU,
+  formatTaskDetail, formatPreview, formatPlanDetail,
+  formatPlanSuggestion, formatBulkPreview, formatStepsList,
+} = require('../formatters');
+const { taskDetailButtons, stepsButtons, confirmButtons } = require('../keyboards');
+const { renderTaskListFiltered, renderPlanTaskList } = require('../renderers');
+const { parseIntent } = require('../parser');
+const { transcribeVoice } = require('../whisper');
+const {
+  getTasks, getTasksToday, getTaskById, updateTask, deleteTask,
+} = require('../taskService');
+const {
+  getPlansWithProgress, getPlanById, getPlanByTitle, getTasksByPlan,
+  archivePlan, deletePlan, createPlan,
+} = require('../planService');
+const { getCategoryNames, getCategoryByName, createCategory, getCategories, getCategoryTaskCount, deleteCategory, PRIORITY_MAP } = require('../categoryService');
+const {
+  getSubtasks, createSubtask, createSubtasks, updateSubtask,
+} = require('../subtaskService');
+const {
+  isConfigured: notionConfigured, isPlansConfigured,
+  pushTask, updateTaskFields, updateTaskStatus, updatePlanFields,
+  syncSubtasksToNotion, appendSubtaskToNotion, updateSubtaskBlockTitle,
+} = require('../integrations/notion');
+const { syncNewPlanToNotion } = require('./plans');
+
+// ─── Одиночные действия над задачей ──────────────────────
+
+async function executeTaskAction(ctx, userId, task, actionObj) {
+  const { action, status, plan, category, date, priority } = actionObj;
+  switch (action) {
+    case 'update_status': {
+      const updated = updateTask(task.id, { status });
+      if (notionConfigured() && updated.notion_page_id) {
+        updateTaskStatus(updated.notion_page_id, status).catch(() => {});
+      }
+      return ctx.reply(
+        `${STATUS_LABEL_RU[status] ?? status}: *${task.title}*`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Открыть', `tv_${task.id}`)]]) }
+      );
+    }
+    case 'delete': {
+      return ctx.reply(`🗑 Удалить *${task.title}*?`, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[
+          Markup.button.callback('Да, удалить', `ts_confirm_delete_${task.id}`),
+          Markup.button.callback('Отмена', 'ts_cancel_delete'),
+        ]]),
+      });
+    }
+    case 'assign_plan': {
+      const planObj = getPlanByTitle(userId, plan);
+      if (!planObj) return ctx.reply(`План "${plan}" не найден.`);
+      const updated = updateTask(task.id, { plan_id: planObj.id });
+      if (notionConfigured() && updated.notion_page_id) {
+        updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+      }
+      return ctx.reply(`✅ *${task.title}* → план *${planObj.title}*`, { parse_mode: 'Markdown' });
+    }
+    case 'assign_category': {
+      let cat = getCategoryByName(userId, category);
+      if (!cat) cat = createCategory(userId, category);
+      const updated = updateTask(task.id, { category_id: cat.id });
+      if (notionConfigured() && updated.notion_page_id) {
+        updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+      }
+      return ctx.reply(`✅ *${task.title}* → категория *${category}*`, { parse_mode: 'Markdown' });
+    }
+    case 'set_date': {
+      const updated = updateTask(task.id, { due_date: date });
+      if (notionConfigured() && updated.notion_page_id) {
+        updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+      }
+      return ctx.reply(`✅ *${task.title}* → 📅 *${date}*`, { parse_mode: 'Markdown' });
+    }
+    case 'set_priority': {
+      const updated = updateTask(task.id, { priority: PRIORITY_MAP[priority] ?? priority });
+      if (notionConfigured() && updated.notion_page_id) {
+        updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+      }
+      const icon = { Высокий: '🔴', Средний: '🟡', Низкий: '🟢' }[priority] ?? '';
+      return ctx.reply(`✅ *${task.title}* → приоритет ${icon} *${priority}*`, { parse_mode: 'Markdown' });
+    }
+    case 'set_waiting': {
+      const { waiting_reason, waiting_until } = normalizeWaiting(actionObj.waiting_reason, actionObj.waiting_until);
+      const updated = updateTask(task.id, {
+        status: 'waiting',
+        waiting_reason,
+        waiting_until,
+      });
+      if (notionConfigured() && updated.notion_page_id) {
+        updateTaskStatus(updated.notion_page_id, 'waiting').catch(() => {});
+        updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+      }
+      return ctx.reply(
+        `⏸ *${task.title}* — в ожидании${actionObj.waiting_reason ? `\n_${actionObj.waiting_reason}_` : ''}`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Открыть', `tv_${task.id}`)]]) }
+      );
+    }
+    default:
+      return ctx.reply('Не понял действие. Попробуй переформулировать.');
+  }
+}
+
+async function handleManageTask(ctx, userId, parsed) {
+  const allTasks = getTasks(userId);
+  const tasks = allTasks.filter(t =>
+    fuzzyMatch(t.title, parsed.search) ||
+    (t.description && fuzzyMatch(t.description, parsed.search))
+  );
+  if (tasks.length === 0) {
+    return ctx.reply(`Задача по запросу _"${parsed.search}"_ не найдена.`, { parse_mode: 'Markdown' });
+  }
+  if (tasks.length === 1) {
+    return executeTaskAction(ctx, userId, tasks[0], parsed);
+  }
+  const state = pendingTasks.get(userId) ?? {};
+  state.voiceAction = { action: parsed.action, status: parsed.status, plan: parsed.plan, category: parsed.category, date: parsed.date, priority: parsed.priority };
+  pendingTasks.set(userId, state);
+  const rows = tasks.slice(0, 8).map(t => [Markup.button.callback(t.title, `va_task_${t.id}`)]);
+  rows.push([Markup.button.callback('❌ Отмена', 'cancel')]);
+  return ctx.reply('Найдено несколько задач — выбери нужную:', Markup.inlineKeyboard(rows));
+}
+
+async function handleQueryTasks(ctx, userId, parsed) {
+  if (parsed.date === 'today') {
+    const tasks = getTasksToday(userId);
+    if (tasks.length === 0) return ctx.reply('На сегодня задач нет.');
+    const { formatTaskText } = require('../formatters');
+    const rows = tasks.slice(0, 15).map((t, i) => [Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`)]);
+    return ctx.reply(`📅 *Задачи на сегодня (${tasks.length}):*`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
+  }
+  const filter = {};
+  if (parsed.category) filter.category = parsed.category;
+  if (parsed.status)   filter.status   = parsed.status;
+  if (parsed.plan) {
+    const plans = getPlansWithProgress(userId);
+    const plan  = plans.find(p => fuzzyMatch(p.title, parsed.plan));
+    if (plan) { filter.planId = plan.id; filter.planTitle = plan.title; }
+  }
+  taskFilters.set(userId, filter);
+  return renderTaskListFiltered(ctx, userId, filter);
+}
+
+async function executePlanAction(ctx, userId, plan, action) {
+  switch (action) {
+    case 'archive':
+      archivePlan(plan.id);
+      if (isPlansConfigured() && plan.notion_page_id) {
+        const { archiveNotionPage } = require('../integrations/notion');
+        archiveNotionPage(plan.notion_page_id).catch(e => console.error('Notion sync error:', e.message));
+      }
+      return ctx.reply(`🗃 План *${plan.title}* архивирован.`, { parse_mode: 'Markdown' });
+    case 'delete':
+      return ctx.reply(`🗑 Удалить план *${plan.title}*?`, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('Только план', `plan_del_only_${plan.id}`), Markup.button.callback('С задачами', `plan_del_tasks_${plan.id}`)],
+          [Markup.button.callback('◀️ Отмена', 'cancel')],
+        ]),
+      });
+    case 'show_tasks': {
+      const tasks = getTasksByPlan(plan.id);
+      return renderPlanTaskList(ctx, plan, tasks);
+    }
+    default:
+      return ctx.reply('Не понял действие с планом.');
+  }
+}
+
+async function handleManagePlan(ctx, userId, parsed) {
+  const plans    = getPlansWithProgress(userId);
+  const matching = plans.filter(p => fuzzyMatch(p.title, parsed.search ?? ''));
+  if (matching.length === 0) {
+    return ctx.reply(`План _"${parsed.search}"_ не найден.`, { parse_mode: 'Markdown' });
+  }
+  if (matching.length === 1) {
+    return executePlanAction(ctx, userId, matching[0], parsed.action);
+  }
+  const state = pendingTasks.get(userId) ?? {};
+  state.voicePlanAction = parsed.action;
+  pendingTasks.set(userId, state);
+  const rows = matching.map(p => [Markup.button.callback(p.title, `va_plan_${p.id}`)]);
+  rows.push([Markup.button.callback('❌ Отмена', 'cancel')]);
+  return ctx.reply('Найдено несколько планов — выбери нужный:', Markup.inlineKeyboard(rows));
+}
+
+function resolveTaskScope(allTasks, parsed) {
+  let tasks = [...allTasks];
+  const f = parsed.filter ?? {};
+  if (f.category) tasks = tasks.filter(t => fuzzyMatch(t.category_name ?? '', f.category));
+  if (f.plan)     tasks = tasks.filter(t => fuzzyMatch(t.plan_title ?? '', f.plan));
+  if (f.status)   tasks = tasks.filter(t => t.status === f.status);
+  if (f.search)   tasks = tasks.filter(t =>
+    fuzzyMatch(t.title, f.search) || (t.description && fuzzyMatch(t.description, f.search))
+  );
+  switch (parsed.scope) {
+    case 'first_n': return tasks.slice(0, parsed.n ?? 1);
+    case 'last_n':  return tasks.slice(-(parsed.n ?? 1));
+    case 'half':    return tasks.slice(0, Math.ceil(tasks.length / 2));
+    default:        return tasks;
+  }
+}
+
+async function handleManageTasksBulk(ctx, userId, parsed) {
+  const allTasks = getTasks(userId);
+  const tasks    = resolveTaskScope(allTasks, parsed);
+  if (tasks.length === 0) return ctx.reply('Задач по заданным критериям не найдено.');
+  const state = pendingTasks.get(userId) ?? {};
+  state.bulkAction = {
+    taskIds:  tasks.map(t => t.id),
+    action:   parsed.action,
+    status:   parsed.status,
+    plan:     parsed.plan,
+    category: parsed.category,
+    priority: parsed.priority,
+  };
+  pendingTasks.set(userId, state);
+  return ctx.reply(formatBulkPreview(tasks, parsed.action, parsed), {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Подтвердить', 'bulk_confirm'), Markup.button.callback('❌ Отмена', 'cancel')],
+    ]),
+  });
+}
+
+async function handleManageCategory(ctx, userId, parsed) {
+  const { action, name } = parsed;
+
+  if (action === 'list') {
+    const cats = getCategories(userId);
+    if (cats.length === 0) return ctx.reply('Категорий нет.');
+    const lines = cats.map(c => {
+      const cnt = getCategoryTaskCount(c.id);
+      return `📁 *${c.name}*${cnt > 0 ? ` — ${cnt} задач` : ''}`;
+    }).join('\n');
+    return ctx.reply(lines, { parse_mode: 'Markdown' });
+  }
+
+  if (action === 'create') {
+    if (!name) return ctx.reply('Укажи название категории.');
+    const existing = getCategoryByName(userId, name);
+    if (existing) return ctx.reply(`Категория *${name}* уже существует.`, { parse_mode: 'Markdown' });
+    const cat = createCategory(userId, name);
+    return ctx.reply(`✅ Категория *${cat.name}* создана!`, { parse_mode: 'Markdown' });
+  }
+
+  if (action === 'delete') {
+    if (!name) return ctx.reply('Укажи название категории для удаления.');
+    const cat = getCategoryByName(userId, name);
+    if (!cat) return ctx.reply(`Категория _"${name}"_ не найдена.`, { parse_mode: 'Markdown' });
+    const count = getCategoryTaskCount(cat.id);
+    if (count > 0) {
+      return ctx.reply(`⚠️ Категория *${cat.name}* содержит ${count} активных задач. Сначала перенеси или удали задачи.`, { parse_mode: 'Markdown' });
+    }
+    deleteCategory(cat.id);
+    return ctx.reply(`🗑 Категория *${cat.name}* удалена.`, { parse_mode: 'Markdown' });
+  }
+
+  return ctx.reply('Не понял действие с категорией.');
+}
+
+// ─── Главный обработчик текста ────────────────────────────
+
+async function handleText(ctx, text) {
+  const userId = getUser(ctx);
+  const state  = pendingTasks.get(userId);
+
+  // Добавление шага
+  if (state?.addingStep) {
+    const { taskId } = state.addingStep;
+    delete state.addingStep;
+    pendingTasks.set(userId, state);
+    const newSub = createSubtask(taskId, text);
+    const task   = getTaskById(taskId);
+    if (notionConfigured() && task.notion_page_id) {
+      appendSubtaskToNotion(task.notion_page_id, newSub)
+        .then(blockId => { if (blockId) updateSubtask(newSub.id, { notion_block_id: blockId }); })
+        .catch(() => {});
+    }
+    const subtasks = getSubtasks(taskId);
+    return ctx.reply(formatStepsList(task, subtasks), {
+      parse_mode: 'Markdown',
+      ...stepsButtons(taskId, subtasks),
+    });
+  }
+
+  // Редактирование шага
+  if (state?.editingStep) {
+    const { subId, taskId } = state.editingStep;
+    delete state.editingStep;
+    pendingTasks.set(userId, state);
+    const updatedSub = updateSubtask(subId, { title: text });
+    if (notionConfigured() && updatedSub.notion_block_id) {
+      updateSubtaskBlockTitle(updatedSub.notion_block_id, text).catch(() => {});
+    }
+    const task     = getTaskById(taskId);
+    const subtasks = getSubtasks(taskId);
+    return ctx.reply(formatStepsList(task, subtasks), {
+      parse_mode: 'Markdown',
+      ...stepsButtons(taskId, subtasks),
+    });
+  }
+
+  // Поиск по задачам
+  if (state?.searchingTasks) {
+    delete state.searchingTasks;
+    pendingTasks.set(userId, state);
+    const filter  = getFilter(userId);
+    filter.search = text;
+    taskFilters.set(userId, filter);
+    return renderTaskListFiltered(ctx, userId, filter);
+  }
+
+  // Редактирование плана
+  if (state?.editingPlan?.field) {
+    const { id, field } = state.editingPlan;
+    delete state.editingPlan;
+    pendingTasks.set(userId, state);
+    const { updatePlan } = require('../planService');
+    const updated = updatePlan(id, { [field]: text });
+    if (isPlansConfigured() && updated.notion_page_id) {
+      updatePlanFields(updated.notion_page_id, updated).catch(e => console.error('Notion sync error:', e.message));
+    }
+    const plan  = getPlanById(id);
+    const tasks = getTasksByPlan(id);
+    return ctx.reply(formatPlanDetail(plan, tasks), {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📋 Задачи', `plan_tasks_${id}`)],
+        [Markup.button.callback('✏️ Изменить', `plan_edit_${id}`), Markup.button.callback('🗃 Архив', `plan_archive_${id}`)],
+        [Markup.button.callback('🗑 Удалить', `plan_delete_${id}`), Markup.button.callback('◀️ К планам', 'back_to_plans')],
+      ]),
+    });
+  }
+
+  // Создание плана через текст
+  if (state?.creatingPlan) {
+    delete state.creatingPlan;
+    pendingTasks.set(userId, state);
+    const plan = createPlan(userId, { title: text });
+    syncNewPlanToNotion(plan);
+    return ctx.reply(`✅ План *${plan.title}* создан!`, { parse_mode: 'Markdown' });
+  }
+
+  // Двухшаговый диалог ожидания
+  if (state?.settingWaiting) {
+    const sw = state.settingWaiting;
+    if (sw.step === 'reason') {
+      sw.waiting_reason = text.trim();
+      // Если в тексте причины есть дата — сразу используем её, пропускаем шаг 'until'
+      const dateInReason = extractDateFromText(text);
+      if (dateInReason) {
+        return require('./tasks').finishWaiting(ctx, userId, state, dateInReason);
+      }
+      sw.step = 'until';
+      pendingTasks.set(userId, state);
+      return ctx.reply('⏸ До какой даты ждёшь? (например: "25 марта", "через неделю")\n\nИли напиши /skip чтобы пропустить.', {
+        ...Markup.inlineKeyboard([[Markup.button.callback('Пропустить', `tw_skip_${sw.taskId}`)]]),
+      });
+    } else {
+      // step === 'until'
+      const waitingUntil = parseFlexibleDate(text);
+      return require('./tasks').finishWaiting(ctx, userId, state, waitingUntil);
+    }
+  }
+
+  // Привязка к Notion странице
+  if (state?.linkingNotion?.taskId) {
+    const { taskId } = state.linkingNotion;
+    delete state.linkingNotion;
+    pendingTasks.set(userId, state);
+    const pageId = extractNotionPageId(text);
+    if (!pageId) return ctx.reply('❌ Не удалось распознать Notion page ID. Отправь URL страницы или ID в формате UUID.');
+    const updated = updateTask(taskId, { notion_page_id: pageId });
+    return ctx.reply(formatTaskDetail(updated), {
+      parse_mode: 'Markdown',
+      ...taskDetailButtons(updated, null, false),
+    });
+  }
+
+  // Создание категории через текст
+  if (state?.creatingCategory) {
+    delete state.creatingCategory;
+    pendingTasks.set(userId, state);
+    const cat = createCategory(userId, text.trim());
+    const { buildSettingsText, buildSettingsKeyboard } = require('./settings');
+    await ctx.reply(`✅ Категория *${cat.name}* создана!`, { parse_mode: 'Markdown' });
+    return ctx.reply(buildSettingsText(), { parse_mode: 'Markdown', ...buildSettingsKeyboard() });
+  }
+
+  // Редактирование сохранённой задачи
+  if (state?.editingSavedTask?.field) {
+    const { id, field } = state.editingSavedTask;
+    delete state.editingSavedTask;
+    pendingTasks.set(userId, state);
+    const value = (field === 'due_date' || field === 'waiting_until') ? parseFlexibleDate(text) : text;
+    const updated = updateTask(id, { [field]: value });
+    if (notionConfigured() && updated.notion_page_id) {
+      updateTaskFields(updated.notion_page_id, updated).catch(e => {
+        console.error('Notion sync error:', e.message);
+        ctx.reply('⚠️ Задача обновлена, но синхронизация с Notion не удалась.').catch(() => {});
+      });
+    }
+    return ctx.reply(formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, null, notionConfigured() && !updated.notion_page_id) });
+  }
+
+  // Редактирование несохранённой задачи
+  if (state?.editingField) {
+    const { task, editingField } = state;
+    if (editingField === 'title')       task.title       = text;
+    if (editingField === 'dueDate')     task.dueDate     = parseFlexibleDate(text);
+    if (editingField === 'description') task.description = text;
+    state.editingField = null;
+    await ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+    return;
+  }
+
+  // Парсинг нового намерения
+  const statusMsg = await ctx.reply('⏳ Анализирую...');
+  let parsed;
+  try {
+    const categories = getCategoryNames(userId);
+    const planNames  = getPlansWithProgress(userId).map(p => p.title);
+    parsed = await parseIntent(text, categories, planNames);
+  } catch (e) {
+    console.error(e);
+    await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+    return ctx.reply('Не удалось распознать сообщение. Попробуй сформулировать подробнее.');
+  }
+
+  await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+
+  if (parsed.intent === 'manage_task')       return handleManageTask(ctx, userId, parsed);
+  if (parsed.intent === 'manage_tasks_bulk') return handleManageTasksBulk(ctx, userId, parsed);
+  if (parsed.intent === 'query_tasks')       return handleQueryTasks(ctx, userId, parsed);
+  if (parsed.intent === 'manage_plan')       return handleManagePlan(ctx, userId, parsed);
+  if (parsed.intent === 'manage_category')   return handleManageCategory(ctx, userId, parsed);
+
+  if (parsed.intent === 'create_plan') {
+    const plan = createPlan(userId, { title: parsed.title, description: parsed.description });
+    syncNewPlanToNotion(plan);
+    return ctx.reply(`✅ План *${plan.title}* создан!`, { parse_mode: 'Markdown' });
+  }
+
+  if (parsed.intent === 'suggest_plan') {
+    pendingTasks.set(userId, { planData: parsed, editingField: null });
+    return ctx.reply(formatPlanSuggestion(parsed), {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Создать всё', 'plan_confirm_create'), Markup.button.callback('❌ Отмена', 'cancel')],
+      ]),
+    });
+  }
+
+  if (parsed.intent === 'create_tasks_batch') {
+    const batchTasks = (parsed.tasks ?? []).map(t => ({ ...t, category: t.category ?? 'Общее' }));
+    if (batchTasks.length === 0) return ctx.reply('Не удалось распознать задачи. Попробуй ещё раз.');
+    if (batchTasks.length === 1) {
+      const task = batchTasks[0];
+      pendingTasks.set(userId, { task, editingField: null });
+      return ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+    }
+    const state = { batchTasks, batchIndex: 0, batchCreated: [] };
+    pendingTasks.set(userId, state);
+    return require('./tasks').showNextBatchTask(ctx, userId, state, false);
+  }
+
+  const task = parsed;
+  if (!task.category) task.category = 'Общее';
+  pendingTasks.set(userId, { task, editingField: null });
+  ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+}
+
+function register(bot) {
+  bot.on('text',  (ctx) => handleText(ctx, ctx.message.text));
+  bot.on('voice', async (ctx) => {
+    const statusMsg = await ctx.reply('🎙 Распознаю речь...');
+    let text;
+    try {
+      const fileLink = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
+      text = await transcribeVoice(fileLink.href);
+    } catch (e) {
+      console.error('Voice error:', e);
+      await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+      return ctx.reply('Не удалось распознать голосовое сообщение.');
+    }
+    await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+    await ctx.reply(`🎙 Распознано: _${text}_`, { parse_mode: 'Markdown' });
+    await handleText(ctx, text);
+  });
+}
+
+module.exports = { register, executeTaskAction, executePlanAction, handleText };
