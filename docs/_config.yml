@@ -1,0 +1,16 @@
+title: Ordo
+description: Telegram-бот для управления задачами через голос и текст
+remote_theme: just-the-docs/just-the-docs
+url: ""
+
+color_scheme: light
+
+aux_links:
+  "Открыть в Telegram":
+    - "https://t.me/ordo_tasks_bot"
+
+aux_links_new_tab: true
+
+nav_enabled: true
+
+footer_content: "Ordo — управляй задачами голосом и текстом"
