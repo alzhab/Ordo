@@ -16,22 +16,9 @@ export default defineConfig({
 
     nav: [
       { text: 'Главная', link: '/' },
-      { text: 'Как пользоваться', link: '/commands' },
-      { text: 'Notion', link: '/notion' },
-      { text: 'Деплой', link: '/deploy' },
     ],
 
-    sidebar: [
-      { text: 'Главная', link: '/' },
-      {
-        text: 'Документация',
-        items: [
-          { text: 'Как пользоваться', link: '/commands' },
-          { text: 'Интеграция с Notion', link: '/notion' },
-          { text: 'Деплой своего бота', link: '/deploy' },
-        ]
-      },
-    ],
+    sidebar: [],
 
     socialLinks: [
       { icon: 'github', link: 'https://github.com/alzhab/Ordo' },
