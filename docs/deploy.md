@@ -1,12 +1,16 @@
 # Деплой своего бота
 
+Хочешь свой приватный инстанс? Твои данные — только на твоём сервере. Никаких облаков, никакого шаринга. Разворачивается за 15 минут.
+
+---
+
 ## Что потребуется
 
 | Сервис | Назначение | Цена |
 |--------|-----------|------|
 | [BotFather](https://t.me/BotFather) | Создать Telegram-бота | Бесплатно |
 | [Groq](https://console.groq.com) | Speech-to-text (Whisper) | Бесплатно |
-| [Anthropic](https://console.anthropic.com) | AI-парсинг задач | ~$1–5/мес |
+| [Anthropic](https://console.anthropic.com) | AI-парсинг и ассистент | ~$1–5/мес |
 | [Railway](https://railway.app) | Хостинг | ~$5/мес |
 
 Notion — опционально.
@@ -91,7 +95,7 @@ npm install
 cp .env.example .env
 # Заполни .env
 npm run dev   # с авто-перезапуском
-npm test      # тесты
+npm test      # 203 теста
 ```
 
 ---
@@ -102,7 +106,7 @@ npm test      # тесты
 |------------|:-----:|---------|
 | `TELEGRAM_BOT_TOKEN` | ✅ | Токен от @BotFather |
 | `GROQ_API_KEY` | ✅ | Ключ Groq для голоса |
-| `ANTHROPIC_API_KEY` | ✅ | Ключ Anthropic для парсинга |
+| `ANTHROPIC_API_KEY` | ✅ | Ключ Anthropic для AI |
 | `NOTION_TOKEN` | — | Токен Notion интеграции |
 | `NOTION_DATABASE_ID` | — | ID базы задач |
 | `NOTION_PLANS_DATABASE_ID` | — | ID базы планов |

@@ -2,13 +2,13 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Ordo',
-  description: 'Telegram-бот для управления задачами через голос и текст',
+  description: 'Telegram-бот с AI-ассистентом. Выгружаешь всё из головы — получаешь план на день. Голова свободна.',
   lang: 'ru-RU',
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/Ordo/logo.svg' }],
-    ['meta', { name: 'og:title', content: 'Ordo — задачи голосом и текстом' }],
-    ['meta', { name: 'og:description', content: 'Telegram-бот с AI-парсингом задач. Говоришь или пишешь — бот сам разбирает всё остальное.' }],
+    ['meta', { name: 'og:title', content: 'Ordo — голова свободна' }],
+    ['meta', { name: 'og:description', content: 'Telegram-бот с AI-ассистентом. Выгружаешь задачи голосом — получаешь план на день с объяснением почему именно эти три.' }],
   ],
 
   themeConfig: {
@@ -16,7 +16,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Главная', link: '/' },
-      { text: 'Команды', link: '/commands' },
+      { text: 'Как пользоваться', link: '/commands' },
       { text: 'Notion', link: '/notion' },
       { text: 'Деплой', link: '/deploy' },
     ],
@@ -26,7 +26,7 @@ export default defineConfig({
       {
         text: 'Документация',
         items: [
-          { text: 'Команды и примеры', link: '/commands' },
+          { text: 'Как пользоваться', link: '/commands' },
           { text: 'Интеграция с Notion', link: '/notion' },
           { text: 'Деплой своего бота', link: '/deploy' },
         ]
