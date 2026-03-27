@@ -10,10 +10,7 @@ hero:
     alt: Ordo
   actions:
     - theme: brand
-      text: Открыть бота в Telegram
-      link: https://t.me/OrdoTaskBot
-    - theme: alt
-      text: Как это работает ↓
+      text: Как это работает
       link: /commands
 ---
 
@@ -220,14 +217,6 @@ Ordo забирает этот хаос из головы. Ты выгружае
 
       Что проседает: Ремонт — нет изменений 8 дней.
 ```
-
----
-
-## Попробуй бесплатно
-
-Бот работает в Telegram. Никакой регистрации — просто напиши первую задачу.
-
-**[Открыть Ordo в Telegram →](https://t.me/OrdoTaskBot)**
 
 ---
 
