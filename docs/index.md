@@ -12,9 +12,6 @@ hero:
     - theme: brand
       text: Начать
       link: /commands
-    - theme: alt
-      text: Деплой своего бота
-      link: /deploy
 
 features:
   - icon: 🎙️
@@ -107,12 +104,5 @@ features:
 | Notion sync | Notion API (опционально) |
 | Хостинг | Railway / VPS |
 
----
-
-## Быстрый старт
-
-Нужно три вещи: токен Telegram-бота, ключ Groq, ключ Anthropic.
-
-→ [Инструкция по деплою](/deploy)
 
 </div>
