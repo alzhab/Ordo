@@ -11,7 +11,7 @@ hero:
   actions:
     - theme: brand
       text: Открыть в Telegram
-      link: https://t.me/OrdoTaskBot
+#      link: https://t.me/OrdoTaskBot
     - theme: alt
       text: Как это работает
       link: /commands

@@ -21,3 +21,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.iml
+docs/node_modules
+docs/.vitepress/cache
+docs/.vitepress/dist
