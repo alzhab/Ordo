@@ -1,13 +1,4 @@
----
-title: Деплой своего бота
-nav_order: 4
----
-
 # Деплой своего бота
-
-Если хочешь поднять собственный экземпляр Ordo.
-
----
 
 ## Что потребуется
 
@@ -16,7 +7,7 @@ nav_order: 4
 | [BotFather](https://t.me/BotFather) | Создать Telegram-бота | Бесплатно |
 | [Groq](https://console.groq.com) | Speech-to-text (Whisper) | Бесплатно |
 | [Anthropic](https://console.anthropic.com) | AI-парсинг задач | ~$1–5/мес |
-| [Railway](https://railway.app) | Хостинг бота | ~$5/мес |
+| [Railway](https://railway.app) | Хостинг | ~$5/мес |
 
 Notion — опционально.
 
@@ -33,35 +24,26 @@ Notion — опционально.
 ## Шаг 2 — Получи API ключи
 
 **Groq (бесплатно):**
-1. Зарегистрируйся на [console.groq.com](https://console.groq.com)
-2. API Keys → Create API Key
-3. Скопируй — это `GROQ_API_KEY`
+1. [console.groq.com](https://console.groq.com) → API Keys → Create
+2. Скопируй — это `GROQ_API_KEY`
 
 **Anthropic:**
-1. Зарегистрируйся на [console.anthropic.com](https://console.anthropic.com)
-2. API Keys → Create Key
-3. Скопируй — это `ANTHROPIC_API_KEY`
+1. [console.anthropic.com](https://console.anthropic.com) → API Keys → Create
+2. Скопируй — это `ANTHROPIC_API_KEY`
 
 ---
 
 ## Шаг 3 — Деплой на Railway
 
-### Клонируй репозиторий
+**Форкни репозиторий** на GitHub, затем:
 
-```bash
-git clone https://github.com/your-username/ordo.git
-cd ordo
-```
+1. [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**
+2. Выбери форкнутый репо
+3. Подожди первый деплой (упадёт — переменные ещё не заданы)
 
-### Создай проект на Railway
+### Переменные окружения
 
-1. Зайди на [railway.app](https://railway.app) → New Project
-2. **Deploy from GitHub repo** → выбери репо
-3. Дождись первого деплоя (он упадёт — переменные ещё не заданы)
-
-### Добавь переменные окружения
-
-В Railway → твой сервис → **Variables → Raw Editor**, вставь:
+Railway → сервис → **Variables → Raw Editor**:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_token
@@ -70,47 +52,37 @@ ANTHROPIC_API_KEY=your_key
 DEV=false
 ```
 
-### Подключи Volume для базы данных
+### Volume для базы данных
 
-Railway использует ephemeral filesystem — без Volume данные сбросятся при рестарте.
+⚠️ Railway сбрасывает файлы при рестарте — нужен Volume:
 
-1. Railway → New → Volume
-2. Примонтируй к сервису, путь: `/data`
-3. Добавь переменную:
-   ```env
-   DB_PATH=/data/data.db
-   ```
+1. Railway → **New → Volume** → примонтируй к сервису, путь `/data`
+2. Добавь переменную: `DB_PATH=/data/data.db`
 
 ### Передеплой
 
-После добавления переменных нажми **Redeploy** — бот запустится.
+После добавления переменных → **Redeploy**. Бот запустится.
 
 ---
 
 ## Деплой на VPS
 
 ```bash
-# Клонируй репо
 git clone https://github.com/your-username/ordo.git
 cd ordo
-
-# Установи зависимости
 npm install --production
-
-# Создай .env файл
 cp .env.example .env
 nano .env  # заполни значения
 
-# Запусти через pm2
+# Запуск через pm2
 npm install -g pm2
 pm2 start src/bot.js --name ordo
-pm2 save
-pm2 startup
+pm2 save && pm2 startup
 ```
 
 ---
 
-## Локальный запуск (для разработки)
+## Локальный запуск
 
 ```bash
 git clone https://github.com/your-username/ordo.git
@@ -119,20 +91,20 @@ npm install
 cp .env.example .env
 # Заполни .env
 npm run dev   # с авто-перезапуском
-npm test      # запустить тесты
+npm test      # тесты
 ```
 
 ---
 
-## Переменные окружения
+## Все переменные окружения
 
-| Переменная | Обязательная | Описание |
-|------------|:---:|---------|
+| Переменная | Обяз. | Описание |
+|------------|:-----:|---------|
 | `TELEGRAM_BOT_TOKEN` | ✅ | Токен от @BotFather |
 | `GROQ_API_KEY` | ✅ | Ключ Groq для голоса |
 | `ANTHROPIC_API_KEY` | ✅ | Ключ Anthropic для парсинга |
 | `NOTION_TOKEN` | — | Токен Notion интеграции |
 | `NOTION_DATABASE_ID` | — | ID базы задач |
 | `NOTION_PLANS_DATABASE_ID` | — | ID базы планов |
-| `DB_PATH` | — | Путь к SQLite файлу (по умолчанию `./data.db`) |
+| `DB_PATH` | — | Путь к SQLite (по умолчанию `./data.db`) |
 | `DEV` | — | `true` — dev режим с отдельной БД |
