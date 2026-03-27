@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <rect width="120" height="120" rx="28" fill="url(#grad)"/>
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+  <!-- Checkmark list icon -->
+  <rect x="30" y="34" width="28" height="6" rx="3" fill="white" opacity="0.9"/>
+  <rect x="30" y="57" width="28" height="6" rx="3" fill="white" opacity="0.9"/>
+  <rect x="30" y="80" width="28" height="6" rx="3" fill="white" opacity="0.9"/>
+  <!-- Check marks -->
+  <path d="M68 31 L74 39 L86 27" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+  <path d="M68 54 L74 62 L86 50" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+  <path d="M68 77 L74 85 L86 73" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+</svg>
