@@ -131,4 +131,44 @@ try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAU
 // Миграция — due_date → planned_for
 try { db.exec(`ALTER TABLE tasks RENAME COLUMN due_date TO planned_for`); } catch {}
 
+// Миграция — пересоздаём tasks если FK всё ещё указывает на plans (а не goals)
+try {
+  const tasksDef = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'`).get();
+  if (tasksDef && tasksDef.sql.includes('plans')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      CREATE TABLE tasks_new (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id         INTEGER NOT NULL REFERENCES users(id),
+        title           TEXT    NOT NULL,
+        description     TEXT,
+        status          TEXT    NOT NULL DEFAULT 'todo',
+        priority        TEXT,
+        category_id     INTEGER REFERENCES categories(id),
+        goal_id         INTEGER REFERENCES goals(id),
+        planned_for     TEXT,
+        notion_page_id  TEXT,
+        waiting_reason  TEXT,
+        waiting_until   TEXT,
+        reminder_at     TEXT,
+        reminder_sent   INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT DEFAULT (datetime('now')),
+        updated_at      TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO tasks_new
+        (id, user_id, title, description, status, priority, category_id,
+         goal_id, planned_for, notion_page_id, waiting_reason, waiting_until,
+         reminder_at, reminder_sent, created_at, updated_at)
+      SELECT
+        id, user_id, title, description, status, priority, category_id,
+        goal_id, planned_for, notion_page_id, waiting_reason, waiting_until,
+        reminder_at, reminder_sent, created_at, updated_at
+      FROM tasks;
+      DROP TABLE tasks;
+      ALTER TABLE tasks_new RENAME TO tasks;
+    `);
+    db.pragma('foreign_keys = ON');
+  }
+} catch (e) { console.error('[db] tasks FK fix error:', e.message); }
+
 module.exports = db;
