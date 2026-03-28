@@ -115,8 +115,12 @@ require('./handlers/intent').register(bot);
 
 // ─── Запуск ───────────────────────────────────────────────
 
+const scheduler = require('./scheduler');
+let schedulerTask;
+
 bot.launch().then(() => {
   console.log('Бот запущен!');
+  schedulerTask = scheduler.start(bot);
   bot.telegram.setMyCommands([
     { command: 'add',      description: 'Добавить задачу' },
     { command: 'tasks',    description: 'Список задач' },
@@ -131,5 +135,5 @@ bot.launch().then(() => {
   ]);
 });
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', () => { scheduler.stop(schedulerTask); bot.stop('SIGINT'); });
+process.once('SIGTERM', () => { scheduler.stop(schedulerTask); bot.stop('SIGTERM'); });
