@@ -31,6 +31,12 @@ hero:
 <div class="tools-grid">
 
 <div class="tool-card">
+<div class="tool-icon">🧠</div>
+<div class="tool-name">Держать в голове</div>
+<div class="tool-pain">Работает пока задач мало. При 30+ начинается постоянная фоновая тревога</div>
+</div>
+
+<div class="tool-card">
 <div class="tool-icon">📝</div>
 <div class="tool-name">Заметки</div>
 <div class="tool-pain">Растут в кашу. Через неделю не понимаешь что из этого ещё актуально</div>
@@ -46,12 +52,6 @@ hero:
 <div class="tool-icon">✅</div>
 <div class="tool-name">Todoist / таск-менеджеры</div>
 <div class="tool-pain">Хорошо хранят задачи. Не отвечают на главный вопрос: что делать сегодня?</div>
-</div>
-
-<div class="tool-card">
-<div class="tool-icon">🧠</div>
-<div class="tool-name">Держать в голове</div>
-<div class="tool-pain">Работает пока задач мало. При 30+ начинается постоянная фоновая тревога</div>
 </div>
 
 </div>
