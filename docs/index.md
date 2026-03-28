@@ -255,17 +255,4 @@ hero:
 
 </div>
 
----
-
-## Стек
-
-| Компонент | Технология |
-|-----------|-----------|
-| Telegram-бот | Node.js + Telegraf |
-| Speech-to-text | Groq Whisper (бесплатно) |
-| AI-парсинг и приоритизация | Anthropic Claude |
-| База данных | SQLite (`better-sqlite3`) |
-| Notion sync | Notion API (опционально) |
-| Хостинг | Railway / VPS |
-
 </div>
