@@ -20,10 +20,13 @@ const {
   pushTask, updateTaskFields, updateTaskStatus,
 } = require('../integrations/notion');
 const { logSyncError } = require('../syncErrorService');
+const { getNotionEnabled } = require('../assistantService');
+
+function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
 
 const STATUS_LABEL = { not_started: '⬜ Возвращено', in_progress: '🔄 В работу', done: '✅ Готово!' };
 
-const needsNotionLink = (task) => notionConfigured() && !task.notion_page_id;
+const needsNotionLink = (task, userId) => notionEnabled(userId) && !task.notion_page_id;
 
 async function finishWaiting(ctx, userId, state, waitingUntil) {
   const { taskId, waiting_reason: rawReason } = state.settingWaiting;
@@ -35,13 +38,13 @@ async function finishWaiting(ctx, userId, state, waitingUntil) {
     waiting_reason,
     waiting_until,
   });
-  if (notionConfigured() && updated.notion_page_id) {
+  if (notionEnabled(userId) && updated.notion_page_id) {
     updateTaskStatus(updated.notion_page_id, 'waiting').catch(() => {});
     updateTaskFields(updated.notion_page_id, updated).catch(() => {});
   }
   const planId = taskPlanContext.get(userId) ?? null;
   const detail = formatTaskDetail(updated);
-  const opts   = { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated)) };
+  const opts   = { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) };
   // safeEdit работает только в callback-контексте; при текстовом вводе используем reply
   if (ctx.callbackQuery) {
     await safeEdit(ctx, detail, opts);
@@ -95,11 +98,12 @@ function register(bot) {
   // Просмотр задачи
   bot.action(/^tv_(\d+)$/, async (ctx) => {
     const taskId = Number(ctx.match[1]);
+    const userId = getUser(ctx);
     const task   = getTaskById(taskId);
     await ctx.answerCbQuery();
     if (!task) return ctx.reply('Задача не найдена.');
     await safeDelete(ctx);
-    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, null, needsNotionLink(task)) });
+    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, null, needsNotionLink(task, userId)) });
   });
 
   // Просмотр задачи из контекста плана
@@ -112,7 +116,7 @@ function register(bot) {
     if (!task) return ctx.reply('Задача не найдена.');
     taskPlanContext.set(userId, planId);
     await safeDelete(ctx);
-    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task)) });
+    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
   });
 
   // Смена статуса
@@ -129,14 +133,14 @@ function register(bot) {
     }
     const updated = updateTask(taskId, fields);
     await ctx.answerCbQuery(STATUS_LABEL[status]);
-    if (notionConfigured() && updated.notion_page_id) {
+    if (notionEnabled(userId) && updated.notion_page_id) {
       updateTaskStatus(updated.notion_page_id, status).catch(e => { console.error('Notion status sync error:', e.message); logSyncError(userId, `Статус "${updated.title}": ${e.message}`); });
       if (prev?.status === 'waiting') {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
     }
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated)) });
+    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   // Перевод задачи в ожидание — шаг 1: причина
@@ -189,7 +193,7 @@ function register(bot) {
     const taskId = Number(ctx.match[1]);
     const task   = getTaskById(taskId);
     deleteTask(taskId);
-    if (notionConfigured() && task?.notion_page_id) {
+    if (notionEnabled(userId) && task?.notion_page_id) {
       updateTaskStatus(task.notion_page_id, 'deleted').catch(() => {});
     }
     await ctx.answerCbQuery('🗑 Удалено');
@@ -252,7 +256,7 @@ function register(bot) {
       }
       pendingTasks.delete(userId);
 
-      if (notionConfigured()) {
+      if (notionEnabled(userId)) {
         pushTask(saved)
           .then(async notionPageId => {
             await updateTask(saved.id, { notion_page_id: notionPageId });
@@ -512,12 +516,12 @@ function register(bot) {
     let cat = getCategoryByName(userId, catName);
     if (!cat) cat = createCategory(userId, catName);
     const updated = updateTask(taskId, { category_id: cat.id });
-    if (notionConfigured() && updated.notion_page_id) {
+    if (notionEnabled(userId) && updated.notion_page_id) {
       updateTaskFields(updated.notion_page_id, updated).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Категория "${updated.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery('✅ Категория обновлена');
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated)) });
+    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   bot.action(/^esf_pri_(\d+)$/, async (ctx) => {
@@ -538,12 +542,12 @@ function register(bot) {
     const priority = ctx.match[2];
     const userId   = getUser(ctx);
     const updated  = updateTask(taskId, { priority });
-    if (notionConfigured() && updated.notion_page_id) {
+    if (notionEnabled(userId) && updated.notion_page_id) {
       updateTaskFields(updated.notion_page_id, updated).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Приоритет "${updated.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery('✅ Приоритет обновлён');
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated)) });
+    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   bot.action(/^esf_plan_(\d+)$/, async (ctx) => {
@@ -562,12 +566,12 @@ function register(bot) {
     const newPlanId = Number(ctx.match[2]);
     const userId = getUser(ctx);
     const updated = updateTask(taskId, { plan_id: newPlanId === 0 ? null : newPlanId });
-    if (notionConfigured() && updated.notion_page_id) {
+    if (notionEnabled(userId) && updated.notion_page_id) {
       updateTaskFields(updated.notion_page_id, updated).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `План "${updated.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery('✅ План обновлён');
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated)) });
+    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   // Уточнение голосовой команды — выбор задачи
@@ -769,13 +773,13 @@ function register(bot) {
       switch (action) {
         case 'update_status':
           updateTask(taskId, { status });
-          if (notionConfigured() && task.notion_page_id) {
+          if (notionEnabled(userId) && task.notion_page_id) {
             updateTaskStatus(task.notion_page_id, status).catch(() => {});
           }
           break;
         case 'delete':
           deleteTask(taskId);
-          if (notionConfigured() && task.notion_page_id) {
+          if (notionEnabled(userId) && task.notion_page_id) {
             updateTaskStatus(task.notion_page_id, 'deleted').catch(() => {});
           }
           break;
@@ -783,7 +787,7 @@ function register(bot) {
           const planObj = getPlanByTitle(userId, plan);
           if (planObj) {
             const updated = updateTask(taskId, { plan_id: planObj.id });
-            if (notionConfigured() && updated.notion_page_id) {
+            if (notionEnabled(userId) && updated.notion_page_id) {
               updateTaskFields(updated.notion_page_id, updated).catch(() => {});
             }
           }
@@ -793,14 +797,14 @@ function register(bot) {
           let cat = getCategoryByName(userId, category);
           if (!cat) cat = createCategory(userId, category);
           const updated = updateTask(taskId, { category_id: cat.id });
-          if (notionConfigured() && updated.notion_page_id) {
+          if (notionEnabled(userId) && updated.notion_page_id) {
             updateTaskFields(updated.notion_page_id, updated).catch(() => {});
           }
           break;
         }
         case 'set_priority': {
           const updated = updateTask(taskId, { priority: PRIORITY_MAP[priority] ?? priority });
-          if (notionConfigured() && updated.notion_page_id) {
+          if (notionEnabled(userId) && updated.notion_page_id) {
             updateTaskFields(updated.notion_page_id, updated).catch(() => {});
           }
           break;
@@ -833,7 +837,7 @@ function register(bot) {
       if (parsed.subtasks?.length) createSubtasks(saved.id, parsed.subtasks);
       state.batchCreated.push(saved);
 
-      if (notionConfigured()) {
+      if (notionEnabled(userId)) {
         pushTask(saved)
           .then(async notionPageId => {
             await updateTask(saved.id, { notion_page_id: notionPageId });

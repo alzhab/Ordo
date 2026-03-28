@@ -4,21 +4,32 @@ const { pendingTasks } = require('../state');
 const { getCategories, createCategory, getCategoryTaskCount, deleteCategory } = require('../categoryService');
 const { isConfigured: notionConfigured, isPlansConfigured } = require('../integrations/notion');
 const { getSyncErrors, clearSyncErrors } = require('../syncErrorService');
+const { getNotionEnabled, updateSettings } = require('../assistantService');
 
-function buildSettingsText() {
+function buildSettingsText(userId) {
   const notionTasks = notionConfigured()
     ? '✅ Notion задачи подключён'
     : '❌ Notion задачи не настроен';
   const notionPlans = isPlansConfigured()
     ? '✅ Notion планы подключён'
     : '❌ Notion планы не настроен';
-  return `⚙️ *Настройки*\n\n*Интеграции:*\n${notionTasks}\n${notionPlans}`;
+  const syncStatus = userId && notionConfigured()
+    ? (getNotionEnabled(userId) ? '\n🔔 Синхронизация: включена' : '\n🔕 Синхронизация: отключена')
+    : '';
+  return `⚙️ *Настройки*\n\n*Интеграции:*\n${notionTasks}\n${notionPlans}${syncStatus}`;
 }
 
-function buildSettingsKeyboard() {
+function buildSettingsKeyboard(userId) {
   const rows = [];
   if (notionConfigured()) {
-    rows.push([Markup.button.callback('🔄 Синхронизировать задачи → Notion', 'notion_sync_all')]);
+    const syncEnabled = userId ? getNotionEnabled(userId) : true;
+    rows.push([Markup.button.callback(
+      syncEnabled ? '🔕 Отключить синхронизацию' : '🔔 Включить синхронизацию',
+      'settings_notion_toggle'
+    )]);
+    if (syncEnabled) {
+      rows.push([Markup.button.callback('🔄 Синхронизировать задачи → Notion', 'notion_sync_all')]);
+    }
     rows.push([Markup.button.callback('⚠️ Ошибки синхронизации', 'settings_sync_errors')]);
   }
   rows.push([Markup.button.callback('📁 Категории', 'settings_categories')]);
@@ -55,9 +66,18 @@ function register(bot) {
     });
   });
 
+  bot.action('settings_notion_toggle', async (ctx) => {
+    const userId = getUser(ctx);
+    const enabled = getNotionEnabled(userId);
+    updateSettings(userId, { notion_enabled: enabled ? 0 : 1 });
+    await ctx.answerCbQuery(enabled ? '🔕 Синхронизация отключена' : '🔔 Синхронизация включена');
+    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
+  });
+
   bot.action('settings_back', async (ctx) => {
+    const userId = getUser(ctx);
     await ctx.answerCbQuery();
-    await safeEdit(ctx, buildSettingsText(), { parse_mode: 'Markdown', ...buildSettingsKeyboard() });
+    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   });
 
   // Вход в раздел категорий

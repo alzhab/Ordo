@@ -106,4 +106,7 @@ db.exec(`
   );
 `);
 
+// Миграция — notion_enabled для отключения синка на уровне пользователя
+try { db.exec(`ALTER TABLE user_settings ADD COLUMN notion_enabled INTEGER NOT NULL DEFAULT 1`); } catch {}
+
 module.exports = db;

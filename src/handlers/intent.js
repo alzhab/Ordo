@@ -30,6 +30,9 @@ const {
   syncSubtasksToNotion, appendSubtaskToNotion, updateSubtaskBlockTitle,
 } = require('../integrations/notion');
 const { syncNewPlanToNotion } = require('./plans');
+const { getNotionEnabled } = require('../assistantService');
+
+function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
 
 // ─── Одиночные действия над задачей ──────────────────────
 
@@ -38,7 +41,7 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
   switch (action) {
     case 'update_status': {
       const updated = updateTask(task.id, { status });
-      if (notionConfigured() && updated.notion_page_id) {
+      if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskStatus(updated.notion_page_id, status).catch(() => {});
       }
       return ctx.reply(
@@ -59,7 +62,7 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
       const planObj = getPlanByTitle(userId, plan);
       if (!planObj) return ctx.reply(`План "${plan}" не найден.`);
       const updated = updateTask(task.id, { plan_id: planObj.id });
-      if (notionConfigured() && updated.notion_page_id) {
+      if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
       return ctx.reply(`✅ *${task.title}* → план *${planObj.title}*`, { parse_mode: 'Markdown' });
@@ -68,21 +71,21 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
       let cat = getCategoryByName(userId, category);
       if (!cat) cat = createCategory(userId, category);
       const updated = updateTask(task.id, { category_id: cat.id });
-      if (notionConfigured() && updated.notion_page_id) {
+      if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
       return ctx.reply(`✅ *${task.title}* → категория *${category}*`, { parse_mode: 'Markdown' });
     }
     case 'set_date': {
       const updated = updateTask(task.id, { due_date: date });
-      if (notionConfigured() && updated.notion_page_id) {
+      if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
       return ctx.reply(`✅ *${task.title}* → 📅 *${date}*`, { parse_mode: 'Markdown' });
     }
     case 'set_priority': {
       const updated = updateTask(task.id, { priority: PRIORITY_MAP[priority] ?? priority });
-      if (notionConfigured() && updated.notion_page_id) {
+      if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
       const icon = { Высокий: '🔴', Средний: '🟡', Низкий: '🟢' }[priority] ?? '';
@@ -95,7 +98,7 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
         waiting_reason,
         waiting_until,
       });
-      if (notionConfigured() && updated.notion_page_id) {
+      if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskStatus(updated.notion_page_id, 'waiting').catch(() => {});
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
@@ -280,7 +283,7 @@ async function handleText(ctx, text) {
     pendingTasks.set(userId, state);
     const newSub = createSubtask(taskId, text);
     const task   = getTaskById(taskId);
-    if (notionConfigured() && task.notion_page_id) {
+    if (notionEnabled(userId) && task.notion_page_id) {
       appendSubtaskToNotion(task.notion_page_id, newSub)
         .then(blockId => { if (blockId) updateSubtask(newSub.id, { notion_block_id: blockId }); })
         .catch(() => {});
@@ -298,7 +301,7 @@ async function handleText(ctx, text) {
     delete state.editingStep;
     pendingTasks.set(userId, state);
     const updatedSub = updateSubtask(subId, { title: text });
-    if (notionConfigured() && updatedSub.notion_block_id) {
+    if (notionEnabled(userId) && updatedSub.notion_block_id) {
       updateSubtaskBlockTitle(updatedSub.notion_block_id, text).catch(() => {});
     }
     const task     = getTaskById(taskId);
@@ -403,13 +406,13 @@ async function handleText(ctx, text) {
     pendingTasks.set(userId, state);
     const value = (field === 'due_date' || field === 'waiting_until') ? parseFlexibleDate(text) : text;
     const updated = updateTask(id, { [field]: value });
-    if (notionConfigured() && updated.notion_page_id) {
+    if (notionEnabled(userId) && updated.notion_page_id) {
       updateTaskFields(updated.notion_page_id, updated).catch(e => {
         console.error('Notion sync error:', e.message);
         ctx.reply('⚠️ Задача обновлена, но синхронизация с Notion не удалась.').catch(() => {});
       });
     }
-    return ctx.reply(formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, null, notionConfigured() && !updated.notion_page_id) });
+    return ctx.reply(formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, null, notionEnabled(userId) && !updated.notion_page_id) });
   }
 
   // Редактирование несохранённой задачи

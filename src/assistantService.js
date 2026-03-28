@@ -20,13 +20,19 @@ function getSettings(userId) {
 }
 
 function updateSettings(userId, fields) {
-  const allowed = ['morning_time', 'evening_time', 'timezone', 'morning_enabled', 'review_enabled', 'quiet_until'];
+  const allowed = ['morning_time', 'evening_time', 'timezone', 'morning_enabled', 'review_enabled', 'quiet_until', 'notion_enabled'];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return;
+  getSettings(userId); // гарантируем что строка существует
   const sets = keys.map(k => `${k} = ?`).join(', ');
   const vals = keys.map(k => fields[k]);
   db.prepare(`UPDATE user_settings SET ${sets}, updated_at = datetime('now') WHERE user_id = ?`)
     .run(...vals, userId);
+}
+
+function getNotionEnabled(userId) {
+  const row = getSettings(userId);
+  return row.notion_enabled !== 0;
 }
 
 // ─── Лог уведомлений ─────────────────────────────────────────
@@ -233,6 +239,7 @@ function getProgress(userId) {
 module.exports = {
   getSettings,
   updateSettings,
+  getNotionEnabled,
   logNotification,
   markReacted,
   wasNotifiedToday,

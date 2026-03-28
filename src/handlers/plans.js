@@ -13,9 +13,13 @@ const {
   pushPlan, updatePlanFields, archiveNotionPage, unarchiveNotionPage,
   isPlansConfigured, pushTask, isConfigured: isTasksConfigured, updateTaskStatus,
 } = require('../integrations/notion');
+const { getNotionEnabled } = require('../assistantService');
+
+function notionPlansEnabled(userId) { return isPlansConfigured() && getNotionEnabled(userId); }
+function notionTasksEnabled(userId) { return isTasksConfigured() && getNotionEnabled(userId); }
 
 async function syncNewPlanToNotion(plan, userId = null) {
-  if (!isPlansConfigured()) return;
+  if (!notionPlansEnabled(userId)) return;
   try {
     const notionPageId = await pushPlan(plan);
     if (notionPageId) updatePlan(plan.id, { notion_page_id: notionPageId });
@@ -126,7 +130,7 @@ function register(bot) {
     const planId = Number(ctx.match[1]);
     const plan = getPlanById(planId);
     archivePlan(planId);
-    if (isPlansConfigured() && plan?.notion_page_id) {
+    if (notionPlansEnabled(userId) && plan?.notion_page_id) {
       archiveNotionPage(plan.notion_page_id).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Архив плана "${plan.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery('🗃 Архивировано');
@@ -146,7 +150,7 @@ function register(bot) {
     const userId = getUser(ctx);
     const plan = getPlanById(Number(ctx.match[1]));
     restorePlan(Number(ctx.match[1]));
-    if (isPlansConfigured() && plan?.notion_page_id) {
+    if (notionPlansEnabled(userId) && plan?.notion_page_id) {
       unarchiveNotionPage(plan.notion_page_id).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Восстановление плана "${plan?.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery(`♻️ "${plan?.title}" восстановлен`);
@@ -172,7 +176,7 @@ function register(bot) {
     const planId = Number(ctx.match[1]);
     const plan = getPlanById(planId);
     deletePlan(planId, false);
-    if (isPlansConfigured() && plan?.notion_page_id) {
+    if (notionPlansEnabled(userId) && plan?.notion_page_id) {
       archiveNotionPage(plan.notion_page_id).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Удаление плана "${plan.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery('🗑 Удалено');
@@ -186,10 +190,10 @@ function register(bot) {
     const plan = getPlanById(planId);
     const tasks = getTasksByPlan(planId);
     deletePlan(planId, true);
-    if (isPlansConfigured() && plan?.notion_page_id) {
+    if (notionPlansEnabled(userId) && plan?.notion_page_id) {
       archiveNotionPage(plan.notion_page_id).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Удаление плана "${plan.title}": ${e.message}`); });
     }
-    if (isTasksConfigured()) {
+    if (notionTasksEnabled(userId)) {
       for (const t of tasks) {
         if (t.notion_page_id) updateTaskStatus(t.notion_page_id, 'deleted').catch(() => {});
       }
@@ -250,7 +254,7 @@ function register(bot) {
     const planId = Number(ctx.match[1]);
     const plan   = getPlanById(planId);
     deletePlan(planId, false);
-    if (isPlansConfigured() && plan?.notion_page_id) {
+    if (notionPlansEnabled(userId) && plan?.notion_page_id) {
       archiveNotionPage(plan.notion_page_id).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Удаление плана "${plan.title}": ${e.message}`); });
     }
     await ctx.answerCbQuery('🗑 Удалено');
@@ -264,10 +268,10 @@ function register(bot) {
     const plan   = getPlanById(planId);
     const tasks  = getTasksByPlan(planId);
     deletePlan(planId, true);
-    if (isPlansConfigured() && plan?.notion_page_id) {
+    if (notionPlansEnabled(userId) && plan?.notion_page_id) {
       archiveNotionPage(plan.notion_page_id).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Удаление плана "${plan.title}": ${e.message}`); });
     }
-    if (isTasksConfigured()) {
+    if (notionTasksEnabled(userId)) {
       for (const t of tasks) {
         if (t.notion_page_id) updateTaskStatus(t.notion_page_id, 'deleted').catch(() => {});
       }
@@ -295,7 +299,7 @@ function register(bot) {
 
       // Сначала создаём план в Notion, ждём page_id для привязки задач
       let planNotionPageId = null;
-      if (isPlansConfigured()) {
+      if (notionPlansEnabled(userId)) {
         planNotionPageId = await pushPlan(plan);
         if (planNotionPageId) updatePlan(plan.id, { notion_page_id: planNotionPageId });
       }
@@ -311,7 +315,7 @@ function register(bot) {
         if (t.subtasks?.length) createSubtasks(task.id, t.subtasks);
 
         // Sync задачи в Notion (plan_notion_page_id уже сохранён в tasks через JOIN)
-        if (isTasksConfigured()) {
+        if (notionTasksEnabled(userId)) {
           const taskWithPlan = { ...task, plan_notion_page_id: planNotionPageId };
           pushTask(taskWithPlan)
             .then(notionPageId => { if (notionPageId) updateTask(task.id, { notion_page_id: notionPageId }); })

@@ -57,6 +57,41 @@ function createTestDb() {
     );
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id         INTEGER PRIMARY KEY REFERENCES users(id),
+      morning_time    TEXT    NOT NULL DEFAULT '09:00',
+      evening_time    TEXT    NOT NULL DEFAULT '21:00',
+      timezone        TEXT    NOT NULL DEFAULT 'Asia/Almaty',
+      morning_enabled INTEGER NOT NULL DEFAULT 1,
+      review_enabled  INTEGER NOT NULL DEFAULT 1,
+      quiet_until     TEXT,
+      notion_enabled  INTEGER NOT NULL DEFAULT 1,
+      created_at      TEXT DEFAULT (datetime('now')),
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id   INTEGER NOT NULL REFERENCES users(id),
+      type      TEXT    NOT NULL,
+      task_id   INTEGER REFERENCES tasks(id),
+      sent_at   TEXT    DEFAULT (datetime('now')),
+      reacted   INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS recurrent_tasks (
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id                 INTEGER NOT NULL REFERENCES users(id),
+      title                   TEXT    NOT NULL,
+      event_time              TEXT    NOT NULL,
+      days                    TEXT,
+      day_of_month            INTEGER,
+      reminder_before_minutes INTEGER NOT NULL DEFAULT 0,
+      created_at              TEXT    DEFAULT (datetime('now'))
+    );
+  `);
+
   // Тестовый пользователь
   db.prepare('INSERT INTO users (id, username) VALUES (1, \'testuser\')').run();
 

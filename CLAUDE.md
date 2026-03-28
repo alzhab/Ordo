@@ -57,12 +57,16 @@ src/
 ├── subtaskService.js       — CRUD подзадач
 ├── categoryService.js      — управление категориями
 ├── syncErrorService.js     — логирование ошибок Notion sync
+├── assistantService.js     — getMorningPlan, getReviewTasks, getFocusTask, getProgress, настройки, лог уведомлений
+├── recurringService.js     — CRUD повторяющихся задач, getDueNow, formatSchedule
+├── scheduler.js            — cron каждую минуту: morning/review/recurring, graceful shutdown
 ├── config.js               — env переменные (DEV режим)
 ├── handlers/
 │   ├── tasks.js            — задачи (CRUD, фильтры, редактирование, bulk, waiting, batch)
 │   ├── plans.js            — планы (CRUD, архив)
 │   ├── subtasks.js         — шаги (toggle, add, edit, delete, AI)
 │   ├── settings.js         — /settings: Notion, категории, ошибки sync
+│   ├── assistant.js        — /morning /review /focus /progress /reminders + кнопки
 │   └── intent.js           — голос/текст → intent → action
 └── integrations/
     └── notion.js           — опциональный sync в Notion
@@ -105,17 +109,17 @@ sync_errors
 - id, user_id, message, created_at
 ```
 
-### Новые таблицы (Фаза 7)
+### Таблицы Фазы 7 (реализованы)
 
 ```sql
 user_settings
 - user_id PRIMARY KEY → users
-- morning_time TEXT DEFAULT '09:00'    -- время утреннего плана
-- evening_time TEXT DEFAULT '21:00'    -- время вечернего разбора
+- morning_time TEXT DEFAULT '09:00'
+- evening_time TEXT DEFAULT '21:00'
 - timezone TEXT DEFAULT 'Asia/Almaty'
 - morning_enabled INTEGER DEFAULT 1
 - review_enabled INTEGER DEFAULT 1
-- quiet_until TEXT NULL                -- тихий режим до (ISO datetime)
+- quiet_until TEXT NULL
 - created_at, updated_at
 
 notification_log
@@ -123,8 +127,10 @@ notification_log
 
 recurrent_tasks
 - id, user_id, title
-- schedule TEXT                        -- cron expression
-- reminder_before_minutes INTEGER      -- напомнить за N минут
+- event_time TEXT              -- 'HH:MM' время события
+- days TEXT                    -- JSON [0-6], null = ежедневно
+- day_of_month INTEGER         -- 1-31, null если не ежемесячно
+- reminder_before_minutes INTEGER DEFAULT 0
 - created_at
 ```
 
@@ -480,30 +486,30 @@ tests/
 - Документационный сайт задеплоен на GitHub Pages: `https://alzhab.github.io/Ordo/`
   - VitePress, кастомный дизайн, landing page по формуле PAS
   - Сайт в тестовом режиме — ссылка на Telegram бот скрыта
+- **Фаза 7 — Проактивный ассистент:**
+  - `user_settings` + `notification_log` + `recurrent_tasks` в БД
+  - `assistantService.js` — приоритизация через Claude API
+  - `/morning` — утренний план с объяснением приоритетов
+  - `/review` — вечерний разбор зависших задач
+  - `/focus` — одна задача прямо сейчас
+  - `/progress` — прогресс за день и неделю
+  - `scheduler.js` — автоотправка по расписанию, graceful shutdown
+  - `manage_settings` intent — голосовое управление уведомлениями
+  - `/reminders` — повторяющиеся напоминания (создание голосом, список, удаление)
 
 ### 🔧 Технический долг
 
 - Удалить restore-блок из `src/bot.js` (использовался для восстановления данных после потери БД на Railway)
 - Убрать поле `priority` из схемы БД (помечено как устаревшее, приоритет расставляет AI)
 
-### 🚀 Сейчас — Фаза 7 (Проактивный ассистент)
+### 🚀 Сейчас — Онбординг и первые пользователи
 
-Порядок реализации:
-1. `user_settings` + `notification_log` в `db.js`
-2. `scheduler.js` + graceful shutdown
-3. `assistantService.js` — приоритизация через Claude
-4. `/morning` — утренний план
-5. `/review` — вечерний разбор
-6. `/progress` — прогресс
-7. `/focus` — текущий фокус
-8. Повторяющиеся задачи (`recurrent_tasks`)
-9. `manage_settings` intent
-
-### После Фазы 7
-
-- Сценарий онбординга нового пользователя (жизненный цикл от /start до первого плана)
+- Сценарий онбординга нового пользователя (жизненный цикл от `/start` до первого утреннего плана)
 - Открыть доступ первым пользователям (2-3 человека), добавить ссылку на сайт
 - Продумать платный план и монетизацию
+
+### После
+
 - Фаза 8 — интеграции (Google Tasks, Obsidian)
 - Фаза 9 — TypeScript миграция
 

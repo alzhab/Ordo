@@ -14,6 +14,9 @@ const {
   syncSubtasksToNotion, toggleSubtaskInNotion,
   appendSubtaskToNotion, deleteNotionBlock,
 } = require('../integrations/notion');
+const { getNotionEnabled } = require('../assistantService');
+
+function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
 
 function register(bot) {
   // Открыть список шагов
@@ -31,10 +34,11 @@ function register(bot) {
   // Переключить шаг
   bot.action(/^step_toggle_(\d+)$/, async (ctx) => {
     const subId    = Number(ctx.match[1]);
+    const userId   = getUser(ctx);
     const sub      = toggleSubtask(subId);
     const task     = getTaskById(sub.task_id);
     const subtasks = getSubtasks(sub.task_id);
-    if (notionConfigured() && task.notion_page_id && sub.notion_block_id) {
+    if (notionEnabled(userId) && task.notion_page_id && sub.notion_block_id) {
       toggleSubtaskInNotion(sub.notion_block_id, sub.is_done).catch(() => {});
     }
     await ctx.answerCbQuery();
@@ -46,10 +50,11 @@ function register(bot) {
 
   // Удалить шаг
   bot.action(/^step_del_(\d+)$/, async (ctx) => {
-    const subId = Number(ctx.match[1]);
-    const sub   = getSubtaskById(subId);
+    const subId  = Number(ctx.match[1]);
+    const userId = getUser(ctx);
+    const sub    = getSubtaskById(subId);
     if (!sub) return ctx.answerCbQuery('Шаг не найден.');
-    if (notionConfigured() && sub.notion_block_id) {
+    if (notionEnabled(userId) && sub.notion_block_id) {
       deleteNotionBlock(sub.notion_block_id).catch(() => {});
     }
     deleteSubtask(subId);
@@ -136,7 +141,7 @@ function register(bot) {
     createSubtasks(taskId, steps);
     const task     = getTaskById(taskId);
     const subtasks = getSubtasks(taskId);
-    if (notionConfigured() && task.notion_page_id) {
+    if (notionEnabled(userId) && task.notion_page_id) {
       syncSubtasksToNotion(task.notion_page_id, subtasks)
         .then(mapping => mapping.forEach(({ subtaskId, blockId }) => updateSubtask(subtaskId, { notion_block_id: blockId })))
         .catch(() => {});
@@ -161,7 +166,7 @@ function register(bot) {
     const existingTitles = existing.map(s => s.title.toLowerCase().trim());
     const newSteps       = steps.filter(s => !existingTitles.includes(s.toLowerCase().trim()));
     const task           = getTaskById(taskId);
-    if (newSteps.length > 0 && notionConfigured() && task.notion_page_id) {
+    if (newSteps.length > 0 && notionEnabled(userId) && task.notion_page_id) {
       for (const title of newSteps) {
         const newSub = createSubtask(taskId, title);
         appendSubtaskToNotion(task.notion_page_id, newSub)
