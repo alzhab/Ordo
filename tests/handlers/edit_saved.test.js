@@ -153,10 +153,10 @@ describe('SC-21: esf_desc_N + текст — обновление описани
   });
 });
 
-// ─── SC-22: esf_date_N + гибкая дата — обновить due_date ─────────────────────
+// ─── SC-22: esf_date_N + гибкая дата — обновить planned_for ──────────────────
 
-describe('SC-22: esf_date_N + дата — обновление срока', () => {
-  test('ISO дата сохраняется в due_date', async () => {
+describe('SC-22: esf_date_N + дата — обновление плановой даты', () => {
+  test('ISO дата сохраняется в planned_for', async () => {
     const task = taskService.createTask(USER_ID, { title: 'Задача' });
 
     const ctx1 = mockCtx({ userId: USER_ID, isCallback: true });
@@ -165,10 +165,10 @@ describe('SC-22: esf_date_N + дата — обновление срока', () 
     const ctx2 = mockCtx({ userId: USER_ID });
     await handleText(ctx2, '2026-06-15');
 
-    expect(taskService.getTaskById(task.id).due_date).toBe('2026-06-15');
+    expect(taskService.getTaskById(task.id).planned_for).toBe('2026-06-15');
   });
 
-  test('нераспознанная дата → null в due_date', async () => {
+  test('нераспознанная дата → null в planned_for', async () => {
     const task = taskService.createTask(USER_ID, { title: 'Задача' });
 
     const ctx1 = mockCtx({ userId: USER_ID, isCallback: true });
@@ -177,7 +177,7 @@ describe('SC-22: esf_date_N + дата — обновление срока', () 
     const ctx2 = mockCtx({ userId: USER_ID });
     await handleText(ctx2, 'непонятно когда');
 
-    expect(taskService.getTaskById(task.id).due_date).toBeNull();
+    expect(taskService.getTaskById(task.id).planned_for).toBeNull();
   });
 });
 

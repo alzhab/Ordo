@@ -23,7 +23,7 @@ describe('parseIntent — create_task', () => {
       intent: 'create_task',
       title: 'Купить молоко',
       description: null,
-      dueDate: null,
+      plannedFor: null,
       category: null,
       priority: null,
       plan: null,
@@ -40,7 +40,7 @@ describe('parseIntent — create_task', () => {
       intent: 'create_task',
       title: 'Записаться к врачу',
       description: null,
-      dueDate: null,
+      plannedFor: null,
       category: 'Здоровье',
       priority: null,
       plan: null,
@@ -54,7 +54,7 @@ describe('parseIntent — create_task', () => {
   });
 
   test('передаёт категории и планы в промпт', async () => {
-    mockResponse(JSON.stringify({ intent: 'create_task', title: 'Тест', description: null, dueDate: null, category: 'Работа', priority: null, plan: null, subtasks: null }));
+    mockResponse(JSON.stringify({ intent: 'create_task', title: 'Тест', description: null, plannedFor: null, category: 'Работа', priority: null, plan: null, subtasks: null }));
 
     await parseIntent('текст', ['Работа', 'Дом'], ['План 1']);
     const callArgs = mockCreate.mock.calls.at(-1)[0];

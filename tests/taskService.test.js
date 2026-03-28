@@ -31,10 +31,10 @@ describe('createTask', () => {
       title: 'Задача',
       description: 'Описание',
       priority: 'Высокий',
-      dueDate: '2026-12-31',
+      plannedFor: '2026-12-31',
     });
     expect(task.description).toBe('Описание');
-    expect(task.due_date).toBe('2026-12-31');
+    expect(task.planned_for).toBe('2026-12-31');
   });
 
   test('автоматически создаёт категорию если не существует', () => {
@@ -126,12 +126,12 @@ describe('deleteTask', () => {
   });
 });
 
-describe('getTasksToday', () => {
-  test('возвращает задачи с дедлайном сегодня', () => {
+describe('getTasksByPlannedDate', () => {
+  test('возвращает задачи запланированные на дату', () => {
     const today = new Date().toISOString().split('T')[0];
-    taskService.createTask(USER_ID, { title: 'Сегодня', dueDate: today });
+    taskService.createTask(USER_ID, { title: 'Сегодня', plannedFor: today });
     taskService.createTask(USER_ID, { title: 'Без даты' });
-    const tasks = taskService.getTasksToday(USER_ID);
+    const tasks = taskService.getTasksByPlannedDate(USER_ID, today);
     expect(tasks.length).toBe(1);
     expect(tasks[0].title).toBe('Сегодня');
   });

@@ -31,8 +31,8 @@ async function pushTask(task) {
   if (task.description) {
     properties.Description = { rich_text: [{ text: { content: task.description } }] };
   }
-  if (task.due_date) {
-    properties['Due Date'] = { date: { start: task.due_date } };
+  if (task.planned_for) {
+    properties['Due Date'] = { date: { start: task.planned_for } };
   }
   if (task.priority) {
     properties.Priority = { select: { name: PRIORITY_LABEL[task.priority] ?? task.priority } };
@@ -71,8 +71,8 @@ async function updateTaskFields(notionPageId, task) {
   if (task.description) {
     properties.Description = { rich_text: [{ text: { content: task.description } }] };
   }
-  if (task.due_date) {
-    properties['Due Date'] = { date: { start: task.due_date } };
+  if (task.planned_for) {
+    properties['Due Date'] = { date: { start: task.planned_for } };
   }
   if (task.priority) {
     properties.Priority = { select: { name: PRIORITY_LABEL[task.priority] ?? task.priority } };

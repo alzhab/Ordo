@@ -14,7 +14,7 @@ const { renderTaskListFiltered, renderPlanTaskList } = require('../renderers');
 const { parseIntent } = require('../parser');
 const { transcribeVoice } = require('../whisper');
 const {
-  getTasks, getTasksToday, getTaskById, updateTask, deleteTask,
+  getTasks, getTasksByPlannedDate, getTaskById, updateTask, deleteTask,
 } = require('../taskService');
 const {
   getPlansWithProgress, getPlanById, getPlanByTitle, getTasksByPlan,
@@ -76,8 +76,8 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
       }
       return ctx.reply(`✅ *${task.title}* → категория *${category}*`, { parse_mode: 'Markdown' });
     }
-    case 'set_date': {
-      const updated = updateTask(task.id, { due_date: date });
+    case 'set_planned_for': {
+      const updated = updateTask(task.id, { planned_for: date });
       if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
@@ -141,8 +141,9 @@ async function handleManageTask(ctx, userId, parsed) {
 
 async function handleQueryTasks(ctx, userId, parsed) {
   if (parsed.date === 'today') {
-    const tasks = getTasksToday(userId);
-    if (tasks.length === 0) return ctx.reply('На сегодня задач нет.');
+    const today = new Date().toISOString().split('T')[0];
+    const tasks = getTasksByPlannedDate(userId, today);
+    if (tasks.length === 0) return ctx.reply('На сегодня задач не запланировано.');
     const { formatTaskText } = require('../formatters');
     const rows = tasks.slice(0, 15).map((t, i) => [Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`)]);
     return ctx.reply(`📅 *Задачи на сегодня (${tasks.length}):*`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
@@ -413,7 +414,7 @@ async function handleText(ctx, text) {
     pendingTasks.set(userId, state);
     let value;
     if (field === 'reminder_at') value = parseReminderDatetime(text);
-    else if (field === 'due_date' || field === 'waiting_until') value = parseFlexibleDate(text);
+    else if (field === 'planned_for' || field === 'waiting_until') value = parseFlexibleDate(text);
     else value = text;
     const fields = field === 'reminder_at'
       ? { reminder_at: value, reminder_sent: 0 }
@@ -432,7 +433,7 @@ async function handleText(ctx, text) {
   if (state?.editingField) {
     const { task, editingField } = state;
     if (editingField === 'title')       task.title       = text;
-    if (editingField === 'dueDate')     task.dueDate     = parseFlexibleDate(text);
+    if (editingField === 'plannedFor')  task.plannedFor  = parseFlexibleDate(text);
     if (editingField === 'description') task.description = text;
     state.editingField = null;
     await ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });

@@ -39,7 +39,7 @@ function createTestDb() {
       priority        TEXT,
       category_id     INTEGER REFERENCES categories(id),
       plan_id         INTEGER REFERENCES plans(id),
-      due_date        TEXT,
+      planned_for     TEXT,
       notion_page_id  TEXT,
       waiting_reason  TEXT,
       waiting_until   TEXT,

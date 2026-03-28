@@ -67,17 +67,27 @@ function isQuietMode(userId) {
 
 // ─── Утренний план ────────────────────────────────────────────
 
-async function getMorningPlan(userId) {
-  const tasks = getTasks(userId, {});
-  if (!tasks.length) return null;
+async function getMorningPlan(userId, date) {
+  const { getTasksByPlannedDate } = require('./taskService');
+  const targetDate = date ?? new Date().toISOString().slice(0, 10);
+
+  // Все активные задачи без planned_for — кандидаты для AI
+  const allTasks = getTasks(userId, {});
+  // Уже запланированные на эту дату
+  const plannedTasks = getTasksByPlannedDate(userId, targetDate);
+  const plannedIds = new Set(plannedTasks.map(t => t.id));
+
+  // Кандидаты: без planned_for или с другой датой
+  const candidates = allTasks.filter(t => !t.planned_for || t.planned_for === targetDate);
+  const unplanned = candidates.filter(t => !plannedIds.has(t.id));
+
+  if (!unplanned.length) return [];
 
   const plans = getPlansWithProgress(userId);
-  const today = new Date().toISOString().slice(0, 10);
 
-  const tasksText = tasks.map(t => {
+  const tasksText = unplanned.map(t => {
     const parts = [`[${t.id}] ${t.title}`];
     if (t.status) parts.push(`статус: ${t.status}`);
-    if (t.due_date) parts.push(`дедлайн: ${t.due_date}`);
     if (t.waiting_until) parts.push(`ждёт до: ${t.waiting_until}`);
     if (t.plan_title) parts.push(`план: ${t.plan_title}`);
     if (t.updated_at) parts.push(`обновлено: ${t.updated_at.slice(0, 10)}`);
@@ -88,19 +98,18 @@ async function getMorningPlan(userId) {
     ? plans.map(p => `"${p.title}" (${p.done_count ?? 0}/${p.total_count ?? 0} задач)`).join(', ')
     : 'нет активных планов';
 
-  const prompt = `Сегодня: ${today}. Ты — умный помощник по задачам Ordo.
+  const prompt = `Дата плана: ${targetDate}. Ты — умный помощник по задачам Ordo.
 
-Задачи пользователя:
+Задачи которые ещё не запланированы на эту дату:
 ${tasksText}
 
 Активные планы: ${plansText}
 
-Выбери наиболее важные задачи на сегодня. Учитывай:
-- дедлайны (ближайшие важнее)
+Выбери задачи которые стоит добавить в план на ${targetDate}. Учитывай:
 - задачи со статусом waiting у которых истёк waiting_until
 - задачи которые давно не обновлялись
 - контекст планов (если план важный — его задачи важнее)
-- не перегружай: оптимальное количество задач на день, не больше
+- не перегружай: 3-5 задач максимум
 
 Верни JSON:
 {
@@ -128,6 +137,13 @@ ${tasksText}
 function getReviewTasks(userId) {
   const today = new Date().toISOString().slice(0, 10);
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+  // Незакрытые задачи из сегодняшнего плана
+  const plannedToday = db.prepare(`
+    SELECT * FROM tasks
+    WHERE user_id = ? AND planned_for = ? AND status NOT IN ('done', 'deleted')
+    ORDER BY created_at ASC LIMIT 3
+  `).all(userId, today);
 
   // waiting без даты, висит 3+ дня
   const waitingNoDate = db.prepare(`
@@ -165,7 +181,7 @@ function getReviewTasks(userId) {
 
   const seen = new Set();
   const result = [];
-  for (const t of [...waitingExpired, ...waitingNoDate, ...stale, ...maybe]) {
+  for (const t of [...plannedToday, ...waitingExpired, ...waitingNoDate, ...stale, ...maybe]) {
     if (!seen.has(t.id) && result.length < 5) {
       seen.add(t.id);
       result.push(t);
@@ -183,7 +199,7 @@ async function getFocusTask(userId) {
   const today = new Date().toISOString().slice(0, 10);
   const tasksText = tasks.slice(0, 20).map(t => {
     const parts = [`[${t.id}] ${t.title}`];
-    if (t.due_date) parts.push(`дедлайн: ${t.due_date}`);
+    if (t.planned_for) parts.push(`запланировано: ${t.planned_for}`);
     if (t.updated_at) parts.push(`обновлено: ${t.updated_at.slice(0, 10)}`);
     return parts.join(', ');
   }).join('\n');

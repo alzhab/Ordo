@@ -32,7 +32,7 @@ function buildSystemPrompt(categories, plans = []) {
   "intent": "create_task",
   "title": string,
   "description": string | null,
-  "dueDate": ISO date string | null,
+  "plannedFor": ISO date string | null,
   "category": ${categoryList} | <новая категория> | null,
   "priority": "Высокий" | "Средний" | "Низкий" | null,
   "plan": ${planList ?? 'null'} | null,
@@ -42,7 +42,7 @@ function buildSystemPrompt(categories, plans = []) {
   "waiting_until": ISO date string | null,
   "reminder_at": "YYYY-MM-DD HH:MM" | null
 }
-Поле "reminder_at" — когда прислать напоминание о задаче. Признаки: "напомни", "напомни мне", "поставь напоминание", "напомни за N часов/минут до". Если "за N минут до дедлайна" — вычисли reminder_at = dueDate минус N минут. Если только "напомни" без времени и есть dueDate — поставь 09:00 того же дня. Если нет dueDate — поставь завтра 09:00.
+Поле "reminder_at" — когда прислать напоминание о задаче. Признаки: "напомни", "напомни мне", "поставь напоминание", "напомни за N часов/минут до". Если "за N минут до события" — вычисли reminder_at = plannedFor минус N минут. Если только "напомни" без времени и есть plannedFor — поставь 09:00 того же дня. Если нет plannedFor — поставь завтра 09:00.
 Примеры create_task с reminder_at:
 - "Купить молоко завтра, напомни в 10 утра" → reminder_at: "<завтра> 10:00"
 - "Встреча в пятницу в 15:00, напомни за 30 минут" → reminder_at: "<пятница> 14:30"
@@ -61,7 +61,7 @@ function buildSystemPrompt(categories, plans = []) {
     {
       "title": string,
       "description": string | null,
-      "dueDate": ISO date string | null,
+      "plannedFor": ISO date string | null,
       "category": ${categoryList} | <новая категория> | null,
       "priority": "Высокий" | "Средний" | "Низкий" | null,
       "plan": ${planList ?? 'null'} | null,
@@ -95,7 +95,7 @@ function buildSystemPrompt(categories, plans = []) {
       "title": string,
       "category": ${categoryList} | <новая категория> | null,
       "priority": "Высокий" | "Средний" | "Низкий" | null,
-      "dueDate": ISO date string | null,
+      "plannedFor": ISO date string | null,
       "subtasks": [string, ...]
     }
   ]
@@ -106,7 +106,7 @@ function buildSystemPrompt(categories, plans = []) {
 {
   "intent": "manage_task",
   "search": string,
-  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_date" | "set_priority" | "set_waiting" | "set_reminder",
+  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_planned_for" | "set_priority" | "set_waiting" | "set_reminder",
   "status": "not_started" | "in_progress" | "waiting" | "done" | null,
   "plan": string | null,
   "category": string | null,
@@ -122,7 +122,7 @@ function buildSystemPrompt(categories, plans = []) {
 - "отметь X выполненной" / "X готова" → action: "update_status", status: "done"
 - "верни X в очередь" → action: "update_status", status: "not_started"
 - "перенеси X в план Y" → action: "assign_plan", plan: "Y"
-- "поставь X на дату Y" → action: "set_date", date: "Y"
+- "поставь X на дату Y" / "запланируй X на Y" → action: "set_planned_for", date: "Y"
 - "приоритет X — высокий" → action: "set_priority", priority: "Высокий"
 - "задача X в ожидании, жду доставку с WB до 25 марта" → action: "set_waiting", waiting_reason: "жду доставку с WB", waiting_until: "2026-03-25"
 - "задача X в ожидании, жду ответа от врача" → action: "set_waiting", waiting_reason: "жду ответа от врача", waiting_until: null

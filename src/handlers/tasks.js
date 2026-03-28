@@ -7,7 +7,7 @@ const {
 } = require('../keyboards');
 const { renderTaskListFiltered } = require('../renderers');
 const {
-  getTasks, getTasksToday, getTaskById, updateTask, deleteTask, getUnsyncedTasks,
+  getTasks, getTasksByPlannedDate, getTaskById, updateTask, deleteTask, getUnsyncedTasks,
 } = require('../taskService');
 const { getPlansWithProgress, getPlanById } = require('../planService');
 const { getCategoryNames, getCategoryByName, createCategory } = require('../categoryService');
@@ -334,7 +334,7 @@ function register(bot) {
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Название', 'edit_field_title'), Markup.button.callback('Описание', 'edit_field_description')],
         [Markup.button.callback('Категория', 'edit_field_category'), Markup.button.callback('Приоритет', 'edit_field_priority')],
-        [Markup.button.callback('Дата', 'edit_field_dueDate'), Markup.button.callback('План', 'edit_field_plan')],
+        [Markup.button.callback('Дата', 'edit_field_plannedFor'), Markup.button.callback('План', 'edit_field_plan')],
         [Markup.button.callback('◀️ Назад', 'edit_back')],
       ]),
     });
@@ -395,14 +395,14 @@ function register(bot) {
     ctx.answerCbQuery();
   });
 
-  bot.action(/^edit_field_(title|dueDate|description)$/, async (ctx) => {
+  bot.action(/^edit_field_(title|plannedFor|description)$/, async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state) return ctx.answerCbQuery('Сессия устарела.');
     const field  = ctx.match[1];
     state.editingField = field;
     await ctx.answerCbQuery();
-    const labels      = { title: 'Название', dueDate: 'Дата (ГГГГ-ММ-ДД)', description: 'Описание' };
+    const labels      = { title: 'Название', plannedFor: 'Дата (ГГГГ-ММ-ДД)', description: 'Описание' };
     const current     = state.task[field];
     const currentLine = current ? `\nТекущее: \`${current}\`` : '';
     await safeEdit(ctx, `✏️ *${labels[field]}*${currentLine}\n\nОтправь новое значение текстом или голосом 🎙`, {
@@ -419,7 +419,7 @@ function register(bot) {
     const rows = [
       [Markup.button.callback('Название', `esf_title_${taskId}`), Markup.button.callback('Описание', `esf_desc_${taskId}`)],
       [Markup.button.callback('Категория', `esf_cat_${taskId}`), Markup.button.callback('Приоритет', `esf_pri_${taskId}`)],
-      [Markup.button.callback('Дата срока', `esf_date_${taskId}`), Markup.button.callback('План', `esf_plan_${taskId}`)],
+      [Markup.button.callback('Запланировать на', `esf_date_${taskId}`), Markup.button.callback('План', `esf_plan_${taskId}`)],
       [Markup.button.callback('🔔 Напоминание', `esf_reminder_${taskId}`)],
     ];
     if (task?.status === 'waiting') {
@@ -449,7 +449,7 @@ function register(bot) {
     const taskId   = Number(ctx.match[2]);
     const userId   = getUser(ctx);
     const task     = getTaskById(taskId);
-    const fieldMap = { title: 'title', desc: 'description', date: 'due_date' };
+    const fieldMap = { title: 'title', desc: 'description', date: 'planned_for' };
     const labelMap = { title: 'Название', desc: 'Описание', date: 'Дата (ГГГГ-ММ-ДД)' };
     const field    = fieldMap[fieldKey];
     const state    = pendingTasks.get(userId) ?? {};

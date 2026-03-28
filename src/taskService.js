@@ -19,7 +19,7 @@ function createTask(userId, parsed) {
   }
 
   const result = db.prepare(`
-    INSERT INTO tasks (user_id, title, description, status, priority, category_id, plan_id, due_date, waiting_reason, waiting_until, reminder_at)
+    INSERT INTO tasks (user_id, title, description, status, priority, category_id, plan_id, planned_for, waiting_reason, waiting_until, reminder_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
@@ -29,7 +29,7 @@ function createTask(userId, parsed) {
     PRIORITY_MAP[parsed.priority] ?? null,
     categoryId,
     planId,
-    parsed.dueDate ?? null,
+    parsed.plannedFor ?? null,
     parsed.waiting_reason ?? null,
     parsed.waiting_until ?? null,
     parsed.reminder_at ?? null,
@@ -90,15 +90,14 @@ function getTasks(userId, filter = {}) {
   `).all(...params);
 }
 
-function getTasksToday(userId) {
-  const today = new Date().toISOString().split('T')[0];
+function getTasksByPlannedDate(userId, date) {
   return db.prepare(`
     SELECT t.*, c.name AS category_name
     FROM tasks t
     LEFT JOIN categories c ON c.id = t.category_id
-    WHERE t.user_id = ? AND t.due_date = ? AND t.status != 'deleted'
-    ORDER BY t.created_at DESC
-  `).all(userId, today);
+    WHERE t.user_id = ? AND t.planned_for = ? AND t.status NOT IN ('done', 'deleted')
+    ORDER BY t.created_at ASC
+  `).all(userId, date);
 }
 
 function getTasksByPlan(userId, planId) {
@@ -112,7 +111,7 @@ function getTasksByPlan(userId, planId) {
 }
 
 function updateTask(id, fields) {
-  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'plan_id', 'due_date', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
+  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'plan_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 
@@ -151,4 +150,4 @@ function getDueReminders() {
   `).all();
 }
 
-module.exports = { createTask, getTaskById, getTasks, getTasksToday, getTasksByPlan, updateTask, deleteTask, getUnsyncedTasks, getDueReminders };
+module.exports = { createTask, getTaskById, getTasks, getTasksByPlannedDate, getTasksByPlan, updateTask, deleteTask, getUnsyncedTasks, getDueReminders };

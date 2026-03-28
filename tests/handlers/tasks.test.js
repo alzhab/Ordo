@@ -92,7 +92,7 @@ describe('SC-01: create_task — простая задача', () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Купить молоко',
       category: null, status: null, description: null,
-      dueDate: null, priority: null, plan: null, subtasks: null,
+      plannedFor: null, priority: null, plan: null, subtasks: null,
     });
 
     const ctx = mockCtx({ userId: USER_ID });
@@ -114,7 +114,7 @@ describe('SC-01: create_task — простая задача', () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Сдать отчёт',
       category: 'Работа', status: null, description: null,
-      dueDate: '2026-03-28', priority: 'Высокий', plan: null, subtasks: null,
+      plannedFor: '2026-03-28', priority: 'Высокий', plan: null, subtasks: null,
     });
 
     const ctx = mockCtx({ userId: USER_ID });
@@ -122,7 +122,7 @@ describe('SC-01: create_task — простая задача', () => {
 
     const state = pendingTasks.get(USER_ID);
     expect(state.task.category).toBe('Работа');
-    expect(state.task.dueDate).toBe('2026-03-28');
+    expect(state.task.plannedFor).toBe('2026-03-28');
     expect(state.task.priority).toBe('Высокий');
   });
 
@@ -147,7 +147,7 @@ describe('SC-03: create_task — задача с подзадачами', () => 
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Подготовить презентацию',
       category: 'Работа', status: null, description: null,
-      dueDate: null, priority: null, plan: null,
+      plannedFor: null, priority: null, plan: null,
       subtasks: ['Сделать слайды', 'Собрать данные', 'Согласовать с командой'],
     });
 

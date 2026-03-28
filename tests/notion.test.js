@@ -48,7 +48,7 @@ describe('pushTask', () => {
   test('создаёт страницу и возвращает id', async () => {
     mockPagesCreate.mockResolvedValue({ id: 'page-abc' });
 
-    const task = { title: 'Купить молоко', category_name: 'Общее', description: null, due_date: null, priority: null, plan_notion_page_id: null };
+    const task = { title: 'Купить молоко', category_name: 'Общее', description: null, planned_for: null, priority: null, plan_notion_page_id: null };
     const id = await notion.pushTask(task);
     expect(id).toBe('page-abc');
     expect(mockPagesCreate).toHaveBeenCalledTimes(1);
@@ -57,15 +57,15 @@ describe('pushTask', () => {
   test('включает description если есть', async () => {
     mockPagesCreate.mockResolvedValue({ id: 'page-1' });
 
-    await notion.pushTask({ title: 'Задача', description: 'Описание', category_name: 'Дом', due_date: null, priority: null, plan_notion_page_id: null });
+    await notion.pushTask({ title: 'Задача', description: 'Описание', category_name: 'Дом', planned_for: null, priority: null, plan_notion_page_id: null });
     const props = mockPagesCreate.mock.calls[0][0].properties;
     expect(props.Description).toBeDefined();
   });
 
-  test('включает due_date если есть', async () => {
+  test('включает planned_for если есть', async () => {
     mockPagesCreate.mockResolvedValue({ id: 'page-2' });
 
-    await notion.pushTask({ title: 'Задача', description: null, category_name: 'Дом', due_date: '2026-12-31', priority: null, plan_notion_page_id: null });
+    await notion.pushTask({ title: 'Задача', description: null, category_name: 'Дом', planned_for: '2026-12-31', priority: null, plan_notion_page_id: null });
     const props = mockPagesCreate.mock.calls[0][0].properties;
     expect(props['Due Date']).toBeDefined();
     expect(props['Due Date'].date.start).toBe('2026-12-31');
@@ -74,7 +74,7 @@ describe('pushTask', () => {
   test('включает план relation если есть plan_notion_page_id', async () => {
     mockPagesCreate.mockResolvedValue({ id: 'page-3' });
 
-    await notion.pushTask({ title: 'Задача', description: null, category_name: 'Общее', due_date: null, priority: null, plan_notion_page_id: 'plan-page-id' });
+    await notion.pushTask({ title: 'Задача', description: null, category_name: 'Общее', planned_for: null, priority: null, plan_notion_page_id: 'plan-page-id' });
     const props = mockPagesCreate.mock.calls[0][0].properties;
     expect(props.Plan.relation[0].id).toBe('plan-page-id');
   });
@@ -84,7 +84,7 @@ describe('updateTaskFields', () => {
   test('обновляет поля страницы', async () => {
     mockPagesUpdate.mockResolvedValue({});
 
-    await notion.updateTaskFields('page-xyz', { title: 'Новое', category_name: 'Работа', description: null, due_date: null, priority: null, plan_notion_page_id: null });
+    await notion.updateTaskFields('page-xyz', { title: 'Новое', category_name: 'Работа', description: null, planned_for: null, priority: null, plan_notion_page_id: null });
     expect(mockPagesUpdate).toHaveBeenCalledWith(expect.objectContaining({ page_id: 'page-xyz' }));
     const props = mockPagesUpdate.mock.calls[0][0].properties;
     expect(props.Name.title[0].text.content).toBe('Новое');

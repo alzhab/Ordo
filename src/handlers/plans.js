@@ -309,7 +309,7 @@ function register(bot) {
           title:    t.title,
           category: t.category ?? null,
           priority: t.priority ?? null,
-          dueDate:  t.dueDate  ?? null,
+          plannedFor: t.plannedFor ?? null,
           plan_id:  plan.id,
         });
         if (t.subtasks?.length) createSubtasks(task.id, t.subtasks);

@@ -113,4 +113,7 @@ try { db.exec(`ALTER TABLE user_settings ADD COLUMN notion_enabled INTEGER NOT N
 try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_at TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0`); } catch {}
 
+// Миграция — due_date → planned_for
+try { db.exec(`ALTER TABLE tasks RENAME COLUMN due_date TO planned_for`); } catch {}
+
 module.exports = db;

@@ -17,7 +17,7 @@ function formatTaskText(t, index) {
   const icon     = STATUS_ICON[t.status] ?? '⬜';
   const priority = t.priority ? ` ${PRIORITY_ICON[t.priority]}` : '';
   const cat      = t.category_name ? ` · ${t.category_name}` : '';
-  const due      = t.due_date ? ` · 📅 ${t.due_date}` : '';
+  const due      = t.planned_for ? ` · 📅 ${t.planned_for}` : '';
   return `${index}. ${icon}${priority} *${t.title}*${cat}${due}`;
 }
 
@@ -32,7 +32,7 @@ function formatTaskDetail(t) {
   }
   if (t.category_name) lines.push(`*Категория:* ${t.category_name}`);
   if (t.priority)      lines.push(`*Приоритет:* ${priorityLabel[t.priority] ?? t.priority}`);
-  if (t.due_date)      lines.push(`*Срок:* ${t.due_date}`);
+  if (t.planned_for)   lines.push(`*Запланировано:* ${t.planned_for}`);
   if (t.description)   lines.push(`*Описание:* ${t.description}`);
   if (t.plan_title)    lines.push(`*План:* ${t.plan_title}`);
   const subtasks = getSubtasks(t.id);
@@ -57,7 +57,7 @@ function formatPreview(task) {
   lines.push(`*Название:* ${task.title}`);
   if (task.description) lines.push(`*Описание:* ${task.description}`);
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
-  if (task.dueDate)     lines.push(`*📅 Срок:* ${task.dueDate}`);
+  if (task.plannedFor)  lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
   if (task.priority)    lines.push(`*⚡ Приоритет:* ${task.priority}`);
   if (task.plan)        lines.push(`*📋 План:* ${task.plan}`);
   if (task.reminder_at) lines.push(`*🔔 Напомнить:* ${task.reminder_at.slice(0, 16)}`);
@@ -112,7 +112,7 @@ function formatPlanSuggestion(parsed) {
     let line = `${i + 1}. ${t.title}`;
     if (t.priority) line += ` ${priIcon[t.priority] ?? ''}`;
     if (t.category) line += ` · 📁 ${t.category}`;
-    if (t.dueDate)  line += ` · 📅 ${t.dueDate}`;
+    if (t.plannedFor) line += ` · 📅 ${t.plannedFor}`;
     lines.push(line);
   });
   return lines.join('\n');
@@ -135,7 +135,7 @@ function formatBatchTaskPreview(task, index, total) {
   lines.push(`*Название:* ${task.title}`);
   if (task.description) lines.push(`*Описание:* ${task.description}`);
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
-  if (task.dueDate)   lines.push(`*📅 Срок:* ${task.dueDate}`);
+  if (task.plannedFor) lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
   if (task.priority)  lines.push(`*⚡ Приоритет:* ${task.priority}`);
   if (task.plan)      lines.push(`*📋 План:* ${task.plan}`);
   if (task.status === 'waiting') {

@@ -4,7 +4,7 @@ const {
   getMorningPlan, getReviewTasks, getProgress,
   logNotification, wasNotifiedToday, isQuietMode,
 } = require('../assistantService');
-const { getTaskById, updateTask, getTasks } = require('../taskService');
+const { getTaskById, updateTask, getTasks, getTasksByPlannedDate } = require('../taskService');
 const { getAll: getAllRecurring, remove: removeRecurring, formatSchedule } = require('../recurringService');
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -23,47 +23,90 @@ function progressBar(done, total) {
 
 // ─── /morning ────────────────────────────────────────────────
 
+function formatDateLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function addDays(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
+}
+
 async function handleMorning(ctx) {
   getUser(ctx);
+  const today    = addDays(0);
+  const tomorrow = addDays(1);
+  const d2       = addDays(2);
+  const d3       = addDays(3);
+
+  await ctx.reply('📅 *На какой день составить план?*', {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [
+        Markup.button.callback(`Сегодня ${formatDateLabel(today)}`,    `mplan_${today}`),
+        Markup.button.callback(`Завтра ${formatDateLabel(tomorrow)}`,  `mplan_${tomorrow}`),
+      ],
+      [
+        Markup.button.callback(formatDateLabel(d2), `mplan_${d2}`),
+        Markup.button.callback(formatDateLabel(d3), `mplan_${d3}`),
+      ],
+    ]),
+  });
+}
+
+async function handleMorningForDate(ctx, date) {
   const userId = ctx.from.id;
   await ctx.sendChatAction('typing');
 
-  let items;
+  const planned = getTasksByPlannedDate(userId, date);
+
+  let suggestions = [];
   try {
-    items = await getMorningPlan(userId);
+    const items = await getMorningPlan(userId, date);
+    suggestions = items
+      .map(({ id, reason }) => {
+        const t = getTaskById(id);
+        return t ? { task: t, reason } : null;
+      })
+      .filter(Boolean);
   } catch (e) {
     console.error('[morning]', e.message);
-    return ctx.reply('⚠️ Не удалось составить план. Попробуй позже.');
   }
 
-  if (!items || !items.length) {
-    return ctx.reply('✅ Активных задач нет. Отличное время добавить новые!');
+  const dateLabel = formatDateLabel(date);
+  const lines = [`📅 *План на ${dateLabel}*\n`];
+
+  if (planned.length) {
+    lines.push('*Запланировано:*');
+    planned.forEach((t, i) => {
+      lines.push(`${i + 1}. ${t.status === 'done' ? '✅' : '☐'} ${t.title}`);
+    });
+  } else {
+    lines.push('_Пока ничего не запланировано._');
   }
 
-  const tasks = await Promise.all(
-    items.map(async ({ id, reason }) => {
-      const t = getTaskById(id);
-      return t ? { task: t, reason } : null;
-    })
-  );
-  const valid = tasks.filter(Boolean);
-
-  if (!valid.length) {
-    return ctx.reply('✅ Активных задач нет. Отличное время добавить новые!');
+  if (suggestions.length) {
+    lines.push('\n*AI предлагает добавить:*');
+    suggestions.forEach(({ task, reason }, i) => {
+      lines.push(`${planned.length + i + 1}. *${task.title}*\n   → ${reason}`);
+    });
   }
-
-  const lines = ['🌅 *Доброе утро! На сегодня:*\n'];
-  valid.forEach(({ task, reason }, i) => {
-    lines.push(`${i + 1}. *${task.title}*\n   → ${reason}`);
-  });
 
   logNotification(userId, 'morning');
 
-  await ctx.reply(lines.join('\n'), {
+  const addButtons = suggestions.map(({ task }) =>
+    [Markup.button.callback(`➕ ${task.title}`, `mplan_add_${date}_${task.id}`)]
+  );
+
+  await ctx.editMessageText(lines.join('\n'), {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([
-      [Markup.button.callback('✅ Берусь', 'ast_morning_ok')],
-      [Markup.button.callback('✏️ Изменить список', 'ast_morning_edit')],
+      ...addButtons,
+      [Markup.button.callback('✅ Сохранить план', `mplan_save_${date}`)],
     ]),
   });
 }
@@ -88,7 +131,14 @@ async function handleReview(ctx) {
 
     let text, buttons;
 
-    if (t.status === 'waiting' && t.waiting_until) {
+    if (t.planned_for) {
+      // Незакрытая задача из сегодняшнего плана
+      text = `📅 *${t.title}*\n_Было в плане на сегодня. Что делаем?_`;
+      buttons = [
+        [Markup.button.callback('✅ Сделал', `ast_rv_done_${t.id}`), Markup.button.callback('▶️ На завтра', `ast_rv_tomorrow_${t.id}`)],
+        [Markup.button.callback('🗑 Удалить', `ast_rv_del_${t.id}`)],
+      ];
+    } else if (t.status === 'waiting' && t.waiting_until) {
       // Просроченное waiting
       text = `⏸ *${t.title}*${ageStr}\n_Срок ожидания вышел. Что делаем?_`;
       buttons = [
@@ -195,16 +245,30 @@ function register(bot) {
   bot.command('progress', handleProgress);
   bot.command('reminders', handleReminders);
 
-  // Morning
-  bot.action('ast_morning_ok', ctx => {
-    ctx.answerCbQuery();
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    ctx.reply('💪 Отлично! Удачного дня.');
+  // Morning — выбор даты
+  bot.action(/^mplan_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const date = ctx.match[1];
+    getUser(ctx);
+    await ctx.answerCbQuery();
+    await handleMorningForDate(ctx, date);
   });
-  bot.action('ast_morning_edit', ctx => {
-    ctx.answerCbQuery();
+
+  // Morning — добавить задачу в план на дату
+  bot.action(/^mplan_add_(\d{4}-\d{2}-\d{2})_(\d+)$/, async (ctx) => {
+    const date   = ctx.match[1];
+    const taskId = parseInt(ctx.match[2]);
+    getUser(ctx);
+    await ctx.answerCbQuery('Добавлено в план');
+    updateTask(taskId, { planned_for: date });
+    await handleMorningForDate(ctx, date);
+  });
+
+  // Morning — сохранить план
+  bot.action(/^mplan_save_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const date = ctx.match[1];
+    await ctx.answerCbQuery('План сохранён ✅');
     ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    ctx.reply('Напиши что добавить или убрать из плана — голосом или текстом.');
+    ctx.reply(`💪 План на ${formatDateLabel(date)} сохранён. Удачного дня!`);
   });
 
   // Review actions
@@ -234,6 +298,14 @@ function register(bot) {
     const id = parseInt(ctx.match[1]);
     updateTask(id, { status: 'maybe' });
     ctx.answerCbQuery('Перенесено в «Возможно»');
+    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  });
+  bot.action(/^ast_rv_tomorrow_(\d+)$/, ctx => {
+    const id = parseInt(ctx.match[1]);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    updateTask(id, { planned_for: tomorrow.toISOString().split('T')[0] });
+    ctx.answerCbQuery('Перенесено на завтра');
     ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   });
   bot.action(/^ast_rv_remind_(\d+)$/, ctx => {
