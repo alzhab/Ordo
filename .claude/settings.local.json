@@ -7,7 +7,9 @@
       "Bash(git push:*)",
       "WebSearch",
       "Bash(node:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npx jest:*)",
+      "Bash(TELEGRAM_BOT_TOKEN=x GROQ_API_KEY=x ANTHROPIC_API_KEY=x npx jest --forceExit tests/handlers/edit_saved.test.js)"
     ]
   }
 }
