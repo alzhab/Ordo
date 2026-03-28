@@ -25,12 +25,13 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS goals (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL REFERENCES users(id),
-    title       TEXT    NOT NULL,
-    description TEXT,
-    status      TEXT    NOT NULL DEFAULT 'active',
-    created_at  TEXT    DEFAULT (datetime('now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id),
+    title          TEXT    NOT NULL,
+    description    TEXT,
+    status         TEXT    NOT NULL DEFAULT 'active',
+    notion_page_id TEXT,
+    created_at     TEXT    DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS tasks (
@@ -72,8 +73,18 @@ try { db.exec(`ALTER TABLE tasks ADD COLUMN waiting_reason TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tasks ADD COLUMN waiting_until DATE`); } catch {}
 
 // Миграция — переименование plans → goals, plan_id → goal_id
-try { db.exec(`ALTER TABLE plans RENAME TO goals`); } catch {}
+try { db.exec(`ALTER TABLE goals ADD COLUMN notion_page_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tasks RENAME COLUMN plan_id TO goal_id`); } catch {}
+
+// Если plans ещё существует (старый деплой) — копируем данные в goals и удаляем plans
+try {
+  const plansExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='plans'`).get();
+  if (plansExists) {
+    db.exec(`INSERT OR IGNORE INTO goals (id, user_id, title, description, status, notion_page_id, created_at)
+             SELECT id, user_id, title, description, status, notion_page_id, created_at FROM plans`);
+    db.exec(`DROP TABLE plans`);
+  }
+} catch (e) { console.error('[db] plans migration error:', e.message); }
 
 // Фаза 7 — настройки пользователя и лог уведомлений
 db.exec(`
