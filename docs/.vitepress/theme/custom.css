@@ -77,9 +77,92 @@
   font-size: 0.95em;
 }
 
-/* Comparison grid responsive */
-@media (max-width: 640px) {
-  .vp-doc [style*="grid-template-columns: 1fr 1fr"] {
-    grid-template-columns: 1fr !important;
+/* Tools grid — блок Знакомо */
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.tool-card {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.tool-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.tool-name {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 6px;
+  color: var(--vp-c-text-1);
+}
+
+.tool-pain {
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  line-height: 1.5;
+}
+
+/* Day columns — блок Ordo весь день */
+.day-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin: 24px 0;
+}
+
+.day-col {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.day-time {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--vp-c-brand-1);
+}
+
+.day-desc {
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  line-height: 1.5;
+}
+
+.day-example {
+  flex: 1;
+}
+
+.day-example div[class*="language-"] {
+  margin: 0;
+  font-size: 12px;
+}
+
+.day-result {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+  padding-top: 8px;
+  border-top: 1px solid var(--vp-c-border);
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+  .day-columns {
+    grid-template-columns: 1fr;
   }
 }
