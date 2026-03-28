@@ -82,18 +82,6 @@ function register(bot) {
     renderTaskListFiltered(ctx, userId, getFilter(userId));
   });
 
-  // /today
-  bot.command('today', (ctx) => {
-    const userId = getUser(ctx);
-    const tasks  = getTasksToday(userId);
-    if (tasks.length === 0) return ctx.reply('На сегодня задач нет.');
-    const { formatTaskText } = require('../formatters');
-    const rows = tasks.slice(0, 15).map((t, i) => [Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`)]);
-    ctx.reply(`📅 *Задачи на сегодня (${tasks.length}):*`, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(rows),
-    });
-  });
 
   // Просмотр задачи
   bot.action(/^tv_(\d+)$/, async (ctx) => {

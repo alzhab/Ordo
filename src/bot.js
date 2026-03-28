@@ -15,8 +15,7 @@ bot.start((ctx) => {
     'Привет! 👋 Я помогу создавать задачи.\n\n' +
     'Отправь голосовое сообщение или напиши задачу текстом.\n\n' +
     'Пример: «Купить провод для ремонта, категория дом, срок эти выходные»\n\n' +
-    '/tasks — список задач\n' +
-    '/today — задачи на сегодня'
+    '/tasks — список задач'
   );
 });
 
@@ -28,7 +27,6 @@ bot.help((ctx) => {
     '3. Задача сохранится локально' +
     (notionConfigured() ? ' и синхронизируется с Notion' : '') + '\n\n' +
     '/tasks — список активных задач\n' +
-    '/today — задачи на сегодня\n' +
     '/add — добавить задачу'
   );
 });
@@ -73,7 +71,6 @@ bot.launch().then(() => {
   bot.telegram.setMyCommands([
     { command: 'add',      description: 'Добавить задачу' },
     { command: 'tasks',    description: 'Список задач' },
-    { command: 'today',    description: 'Задачи на сегодня' },
     { command: 'plans',    description: 'Планы' },
     { command: 'morning',  description: 'План на день' },
     { command: 'review',   description: 'Вечерний разбор' },
