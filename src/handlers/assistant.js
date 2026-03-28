@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const { getUser } = require('../helpers');
 const {
-  getMorningPlan, getReviewTasks, getFocusTask, getProgress,
+  getMorningPlan, getReviewTasks, getProgress,
   logNotification, wasNotifiedToday, isQuietMode,
 } = require('../assistantService');
 const { getTaskById, updateTask, getTasks } = require('../taskService');
@@ -129,40 +129,6 @@ async function handleReview(ctx) {
   });
 }
 
-// ─── /focus ──────────────────────────────────────────────────
-
-async function handleFocus(ctx) {
-  getUser(ctx);
-  const userId = ctx.from.id;
-  await ctx.sendChatAction('typing');
-
-  let result;
-  try {
-    result = await getFocusTask(userId);
-  } catch (e) {
-    console.error('[focus]', e.message);
-    return ctx.reply('⚠️ Не удалось определить фокус. Попробуй позже.');
-  }
-
-  if (!result) {
-    return ctx.reply('✅ Активных задач нет!');
-  }
-
-  const task = getTaskById(result.id);
-  if (!task) return ctx.reply('✅ Активных задач нет!');
-
-  await ctx.reply(
-    `🎯 *Сейчас делай:*\n*${task.title}*\n\n→ ${result.reason}`,
-    {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('✅ Сделал', `ast_focus_done_${task.id}`)],
-        [Markup.button.callback('⏭ Другую задачу', 'ast_focus_next')],
-      ]),
-    }
-  );
-}
-
 // ─── /progress ───────────────────────────────────────────────
 
 async function handleProgress(ctx) {
@@ -226,7 +192,6 @@ async function handleReminders(ctx) {
 function register(bot) {
   bot.command('morning', handleMorning);
   bot.command('review', handleReview);
-  bot.command('focus', handleFocus);
   bot.command('progress', handleProgress);
   bot.command('reminders', handleReminders);
 
@@ -279,20 +244,6 @@ function register(bot) {
   bot.action('ast_rv_skip', ctx => {
     ctx.answerCbQuery('Пропущено');
     ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  });
-
-  // Focus actions
-  bot.action(/^ast_focus_done_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    updateTask(id, { status: 'done' });
-    ctx.answerCbQuery('Отлично! ✅');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    ctx.reply('✅ Готово! Напиши /focus чтобы получить следующую задачу.');
-  });
-  bot.action('ast_focus_next', ctx => {
-    ctx.answerCbQuery();
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    handleFocus(ctx);
   });
 
   // Recurring — удаление
