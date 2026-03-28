@@ -1,7 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { ANTHROPIC_API_KEY } = require('./config');
 const { getTasks } = require('./taskService');
-const { getPlansWithProgress } = require('./planService');
+const { getGoalsWithProgress } = require('./goalService');
 const db = require('./db');
 
 const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -83,20 +83,20 @@ async function getMorningPlan(userId, date) {
 
   if (!unplanned.length) return [];
 
-  const plans = getPlansWithProgress(userId);
+  const goals = getGoalsWithProgress(userId);
 
   const tasksText = unplanned.map(t => {
     const parts = [`[${t.id}] ${t.title}`];
     if (t.status) parts.push(`статус: ${t.status}`);
     if (t.waiting_until) parts.push(`ждёт до: ${t.waiting_until}`);
-    if (t.plan_title) parts.push(`план: ${t.plan_title}`);
+    if (t.goal_title) parts.push(`цель: ${t.goal_title}`);
     if (t.updated_at) parts.push(`обновлено: ${t.updated_at.slice(0, 10)}`);
     return parts.join(', ');
   }).join('\n');
 
-  const plansText = plans.length
-    ? plans.map(p => `"${p.title}" (${p.done_count ?? 0}/${p.total_count ?? 0} задач)`).join(', ')
-    : 'нет активных планов';
+  const plansText = goals.length
+    ? goals.map(g => `"${g.title}" (${g.done ?? 0}/${g.total ?? 0} задач)`).join(', ')
+    : 'нет активных целей';
 
   const prompt = `Дата плана: ${targetDate}. Ты — умный помощник по задачам Ordo.
 
@@ -240,7 +240,7 @@ function getProgress(userId) {
     WHERE user_id = ? AND status = 'done' AND date(updated_at) >= ?
   `).get(userId, weekAgo).cnt;
 
-  const plans = getPlansWithProgress(userId);
+  const plans = getGoalsWithProgress(userId);
 
   const stale = db.prepare(`
     SELECT * FROM tasks

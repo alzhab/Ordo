@@ -20,7 +20,7 @@ function createTestDb() {
       UNIQUE(user_id, name)
     );
 
-    CREATE TABLE IF NOT EXISTS plans (
+    CREATE TABLE IF NOT EXISTS goals (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id        INTEGER NOT NULL REFERENCES users(id),
       title          TEXT    NOT NULL,
@@ -38,7 +38,7 @@ function createTestDb() {
       status          TEXT    NOT NULL DEFAULT 'not_started',
       priority        TEXT,
       category_id     INTEGER REFERENCES categories(id),
-      plan_id         INTEGER REFERENCES plans(id),
+      goal_id         INTEGER REFERENCES goals(id),
       planned_for     TEXT,
       notion_page_id  TEXT,
       waiting_reason  TEXT,

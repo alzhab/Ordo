@@ -37,8 +37,8 @@ async function pushTask(task) {
   if (task.priority) {
     properties.Priority = { select: { name: PRIORITY_LABEL[task.priority] ?? task.priority } };
   }
-  if (task.plan_notion_page_id) {
-    properties.Plan = { relation: [{ id: task.plan_notion_page_id }] };
+  if (task.goal_notion_page_id ?? task.plan_notion_page_id) {
+    properties.Plan = { relation: [{ id: task.goal_notion_page_id ?? task.plan_notion_page_id }] };
   }
   if (task.waiting_reason) {
     properties['Waiting Reason'] = { rich_text: [{ text: { content: task.waiting_reason } }] };
@@ -77,9 +77,9 @@ async function updateTaskFields(notionPageId, task) {
   if (task.priority) {
     properties.Priority = { select: { name: PRIORITY_LABEL[task.priority] ?? task.priority } };
   }
-  if (task.plan_notion_page_id) {
-    properties.Plan = { relation: [{ id: task.plan_notion_page_id }] };
-  } else if (!task.plan_id) {
+  if (task.goal_notion_page_id ?? task.plan_notion_page_id) {
+    properties.Plan = { relation: [{ id: task.goal_notion_page_id ?? task.plan_notion_page_id }] };
+  } else if (!(task.goal_id ?? task.plan_id)) {
     properties.Plan = { relation: [] };
   }
   if (task.waiting_reason) {

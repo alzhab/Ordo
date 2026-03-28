@@ -21,9 +21,9 @@ async function renderTaskListFiltered(ctx, userId, filter = {}, edit = false) {
       ? Markup.button.callback(`📁 ${filter.category} ×`, 'tf_clear_cat')
       : Markup.button.callback('📁 Категория', 'tf_cat'),
     statusBtn,
-    filter.planId
-      ? Markup.button.callback(`📋 ${filter.planTitle} ×`, 'tf_clear_plan')
-      : Markup.button.callback('📋 План', 'tf_plan'),
+    (filter.goalId || filter.planId)
+      ? Markup.button.callback(`📎 ${filter.goalTitle ?? filter.planTitle} ×`, 'tf_clear_goal')
+      : Markup.button.callback('📎 Цель', 'tf_goal'),
   ];
 
   const secondRow = [
@@ -56,16 +56,19 @@ async function renderTaskListFiltered(ctx, userId, filter = {}, edit = false) {
   }
 }
 
-async function renderPlanTaskList(ctx, plan, tasks, edit = false) {
+async function renderGoalTaskList(ctx, goal, tasks, edit = false) {
   const taskRows = tasks.slice(0, 15).map((t, i) => [
-    Markup.button.callback(formatTaskText(t, i + 1), `tvp_${plan.id}_${t.id}`),
+    Markup.button.callback(formatTaskText(t, i + 1), `tvg_${goal.id}_${t.id}`),
   ]);
-  taskRows.push([Markup.button.callback('◀️ К плану', `pv_${plan.id}`)]);
+  taskRows.push([Markup.button.callback('◀️ К цели', `gv_${goal.id}`)]);
   const text = tasks.length
-    ? `📋 *${plan.title}* — задачи (${tasks.length}):`
-    : `📋 *${plan.title}*\n\n_Задач нет._`;
+    ? `📎 *${goal.title}* — задачи (${tasks.length}):`
+    : `📎 *${goal.title}*\n\n_Задач нет._`;
   const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(taskRows) };
   return edit ? ctx.editMessageText(text, opts) : ctx.reply(text, opts);
 }
 
-module.exports = { renderTaskListFiltered, renderPlanTaskList };
+// Legacy alias
+const renderPlanTaskList = renderGoalTaskList;
+
+module.exports = { renderTaskListFiltered, renderGoalTaskList, renderPlanTaskList };

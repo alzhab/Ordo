@@ -17,9 +17,9 @@ const {
   getTasks, getTasksByPlannedDate, getTaskById, updateTask, deleteTask,
 } = require('../taskService');
 const {
-  getPlansWithProgress, getPlanById, getPlanByTitle, getTasksByPlan,
-  archivePlan, deletePlan, createPlan,
-} = require('../planService');
+  getGoalsWithProgress, getGoalById, getGoalByTitle, getTasksByGoal,
+  archiveGoal, deleteGoal, createGoal,
+} = require('../goalService');
 const { getCategoryNames, getCategoryByName, createCategory, getCategories, getCategoryTaskCount, deleteCategory, PRIORITY_MAP } = require('../categoryService');
 const {
   getSubtasks, createSubtask, createSubtasks, updateSubtask,
@@ -29,7 +29,7 @@ const {
   pushTask, updateTaskFields, updateTaskStatus, updatePlanFields,
   syncSubtasksToNotion, appendSubtaskToNotion, updateSubtaskBlockTitle,
 } = require('../integrations/notion');
-const { syncNewPlanToNotion } = require('./plans');
+const { syncNewGoalToNotion } = require('./goals');
 const { getNotionEnabled } = require('../assistantService');
 
 function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
@@ -59,13 +59,13 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
       });
     }
     case 'assign_plan': {
-      const planObj = getPlanByTitle(userId, plan);
-      if (!planObj) return ctx.reply(`План "${plan}" не найден.`);
-      const updated = updateTask(task.id, { plan_id: planObj.id });
+      const goalObj = getGoalByTitle(userId, plan);
+      if (!goalObj) return ctx.reply(`Цель "${plan}" не найдена.`);
+      const updated = updateTask(task.id, { goal_id: goalObj.id });
       if (notionEnabled(userId) && updated.notion_page_id) {
         updateTaskFields(updated.notion_page_id, updated).catch(() => {});
       }
-      return ctx.reply(`✅ *${task.title}* → план *${planObj.title}*`, { parse_mode: 'Markdown' });
+      return ctx.reply(`✅ *${task.title}* → цель *${goalObj.title}*`, { parse_mode: 'Markdown' });
     }
     case 'assign_category': {
       let cat = getCategoryByName(userId, category);
@@ -152,62 +152,68 @@ async function handleQueryTasks(ctx, userId, parsed) {
   if (parsed.category) filter.category = parsed.category;
   if (parsed.status)   filter.status   = parsed.status;
   if (parsed.plan) {
-    const plans = getPlansWithProgress(userId);
-    const plan  = plans.find(p => fuzzyMatch(p.title, parsed.plan));
-    if (plan) { filter.planId = plan.id; filter.planTitle = plan.title; }
+    const goals = getGoalsWithProgress(userId);
+    const goal  = goals.find(g => fuzzyMatch(g.title, parsed.plan));
+    if (goal) { filter.goalId = goal.id; filter.goalTitle = goal.title; }
   }
   taskFilters.set(userId, filter);
   return renderTaskListFiltered(ctx, userId, filter);
 }
 
-async function executePlanAction(ctx, userId, plan, action) {
+async function executeGoalAction(ctx, userId, goal, action) {
   switch (action) {
     case 'archive':
-      archivePlan(plan.id);
-      if (isPlansConfigured() && plan.notion_page_id) {
+      archiveGoal(goal.id);
+      if (isPlansConfigured() && goal.notion_page_id) {
         const { archiveNotionPage } = require('../integrations/notion');
-        archiveNotionPage(plan.notion_page_id).catch(e => console.error('Notion sync error:', e.message));
+        archiveNotionPage(goal.notion_page_id).catch(e => console.error('Notion sync error:', e.message));
       }
-      return ctx.reply(`🗃 План *${plan.title}* архивирован.`, { parse_mode: 'Markdown' });
+      return ctx.reply(`🗃 Цель *${goal.title}* архивирована.`, { parse_mode: 'Markdown' });
     case 'delete':
-      return ctx.reply(`🗑 Удалить план *${plan.title}*?`, {
+      return ctx.reply(`🗑 Удалить цель *${goal.title}*?`, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('Только план', `plan_del_only_${plan.id}`), Markup.button.callback('С задачами', `plan_del_tasks_${plan.id}`)],
+          [Markup.button.callback('Только цель', `goal_del_only_${goal.id}`), Markup.button.callback('С задачами', `goal_del_tasks_${goal.id}`)],
           [Markup.button.callback('◀️ Отмена', 'cancel')],
         ]),
       });
     case 'show_tasks': {
-      const tasks = getTasksByPlan(plan.id);
-      return renderPlanTaskList(ctx, plan, tasks);
+      const tasks = getTasksByGoal(goal.id);
+      return renderPlanTaskList(ctx, goal, tasks);
     }
     default:
-      return ctx.reply('Не понял действие с планом.');
+      return ctx.reply('Не понял действие с целью.');
   }
 }
 
-async function handleManagePlan(ctx, userId, parsed) {
-  const plans    = getPlansWithProgress(userId);
-  const matching = plans.filter(p => fuzzyMatch(p.title, parsed.search ?? ''));
+// Legacy alias
+const executePlanAction = executeGoalAction;
+
+async function handleManageGoal(ctx, userId, parsed) {
+  const goals    = getGoalsWithProgress(userId);
+  const matching = goals.filter(g => fuzzyMatch(g.title, parsed.search ?? ''));
   if (matching.length === 0) {
-    return ctx.reply(`План _"${parsed.search}"_ не найден.`, { parse_mode: 'Markdown' });
+    return ctx.reply(`Цель _"${parsed.search}"_ не найдена.`, { parse_mode: 'Markdown' });
   }
   if (matching.length === 1) {
-    return executePlanAction(ctx, userId, matching[0], parsed.action);
+    return executeGoalAction(ctx, userId, matching[0], parsed.action);
   }
   const state = pendingTasks.get(userId) ?? {};
   state.voicePlanAction = parsed.action;
   pendingTasks.set(userId, state);
-  const rows = matching.map(p => [Markup.button.callback(p.title, `va_plan_${p.id}`)]);
+  const rows = matching.map(g => [Markup.button.callback(g.title, `va_plan_${g.id}`)]);
   rows.push([Markup.button.callback('❌ Отмена', 'cancel')]);
-  return ctx.reply('Найдено несколько планов — выбери нужный:', Markup.inlineKeyboard(rows));
+  return ctx.reply('Найдено несколько целей — выбери нужную:', Markup.inlineKeyboard(rows));
 }
+
+// Legacy alias
+const handleManagePlan = handleManageGoal;
 
 function resolveTaskScope(allTasks, parsed) {
   let tasks = [...allTasks];
   const f = parsed.filter ?? {};
   if (f.category) tasks = tasks.filter(t => fuzzyMatch(t.category_name ?? '', f.category));
-  if (f.plan)     tasks = tasks.filter(t => fuzzyMatch(t.plan_title ?? '', f.plan));
+  if (f.plan)     tasks = tasks.filter(t => fuzzyMatch(t.goal_title ?? '', f.plan));
   if (f.status)   tasks = tasks.filter(t => t.status === f.status);
   if (f.search)   tasks = tasks.filter(t =>
     fuzzyMatch(t.title, f.search) || (t.description && fuzzyMatch(t.description, f.search))
@@ -330,35 +336,35 @@ async function handleText(ctx, text) {
     return renderTaskListFiltered(ctx, userId, filter);
   }
 
-  // Редактирование плана
+  // Редактирование цели
   if (state?.editingPlan?.field) {
     const { id, field } = state.editingPlan;
     delete state.editingPlan;
     pendingTasks.set(userId, state);
-    const { updatePlan } = require('../planService');
-    const updated = updatePlan(id, { [field]: text });
+    const { updateGoal } = require('../goalService');
+    const updated = updateGoal(id, { [field]: text });
     if (isPlansConfigured() && updated.notion_page_id) {
       updatePlanFields(updated.notion_page_id, updated).catch(e => console.error('Notion sync error:', e.message));
     }
-    const plan  = getPlanById(id);
-    const tasks = getTasksByPlan(id);
-    return ctx.reply(formatPlanDetail(plan, tasks), {
+    const goal  = getGoalById(id);
+    const tasks = getTasksByGoal(id);
+    return ctx.reply(formatPlanDetail(goal, tasks), {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('📋 Задачи', `plan_tasks_${id}`)],
-        [Markup.button.callback('✏️ Изменить', `plan_edit_${id}`), Markup.button.callback('🗃 Архив', `plan_archive_${id}`)],
-        [Markup.button.callback('🗑 Удалить', `plan_delete_${id}`), Markup.button.callback('◀️ К планам', 'back_to_plans')],
+        [Markup.button.callback('📋 Задачи', `goal_tasks_${id}`)],
+        [Markup.button.callback('✏️ Изменить', `goal_edit_${id}`), Markup.button.callback('🗃 Архив', `goal_archive_${id}`)],
+        [Markup.button.callback('🗑 Удалить', `goal_delete_${id}`), Markup.button.callback('◀️ К целям', 'back_to_goals')],
       ]),
     });
   }
 
-  // Создание плана через текст
+  // Создание цели через текст
   if (state?.creatingPlan) {
     delete state.creatingPlan;
     pendingTasks.set(userId, state);
-    const plan = createPlan(userId, { title: text });
-    syncNewPlanToNotion(plan);
-    return ctx.reply(`✅ План *${plan.title}* создан!`, { parse_mode: 'Markdown' });
+    const goal = createGoal(userId, { title: text });
+    syncNewGoalToNotion(goal);
+    return ctx.reply(`✅ Цель *${goal.title}* создана!`, { parse_mode: 'Markdown' });
   }
 
   // Двухшаговый диалог ожидания
@@ -445,8 +451,8 @@ async function handleText(ctx, text) {
   let parsed;
   try {
     const categories = getCategoryNames(userId);
-    const planNames  = getPlansWithProgress(userId).map(p => p.title);
-    parsed = await parseIntent(text, categories, planNames);
+    const goalNames  = getGoalsWithProgress(userId).map(g => g.title);
+    parsed = await parseIntent(text, categories, goalNames);
   } catch (e) {
     console.error(e);
     await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
@@ -458,18 +464,18 @@ async function handleText(ctx, text) {
   if (parsed.intent === 'manage_task')       return handleManageTask(ctx, userId, parsed);
   if (parsed.intent === 'manage_tasks_bulk') return handleManageTasksBulk(ctx, userId, parsed);
   if (parsed.intent === 'query_tasks')       return handleQueryTasks(ctx, userId, parsed);
-  if (parsed.intent === 'manage_plan')       return handleManagePlan(ctx, userId, parsed);
+  if (parsed.intent === 'manage_goal' || parsed.intent === 'manage_plan') return handleManageGoal(ctx, userId, parsed);
   if (parsed.intent === 'manage_category')   return handleManageCategory(ctx, userId, parsed);
   if (parsed.intent === 'manage_settings')   return handleManageSettings(ctx, userId, parsed);
   if (parsed.intent === 'create_recurring')  return handleCreateRecurring(ctx, userId, parsed);
 
-  if (parsed.intent === 'create_plan') {
-    const plan = createPlan(userId, { title: parsed.title, description: parsed.description });
-    syncNewPlanToNotion(plan);
-    return ctx.reply(`✅ План *${plan.title}* создан!`, { parse_mode: 'Markdown' });
+  if (parsed.intent === 'create_goal' || parsed.intent === 'create_plan') {
+    const goal = createGoal(userId, { title: parsed.title, description: parsed.description });
+    syncNewGoalToNotion(goal);
+    return ctx.reply(`✅ Цель *${goal.title}* создана!`, { parse_mode: 'Markdown' });
   }
 
-  if (parsed.intent === 'suggest_plan') {
+  if (parsed.intent === 'suggest_goal' || parsed.intent === 'suggest_plan') {
     pendingTasks.set(userId, { planData: parsed, editingField: null });
     return ctx.reply(formatPlanSuggestion(parsed), {
       parse_mode: 'Markdown',
@@ -581,4 +587,4 @@ function register(bot) {
   });
 }
 
-module.exports = { register, executeTaskAction, executePlanAction, handleText };
+module.exports = { register, executeTaskAction, executeGoalAction, executePlanAction, handleText };

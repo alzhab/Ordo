@@ -24,7 +24,7 @@ db.exec(`
     UNIQUE(user_id, name)
   );
 
-  CREATE TABLE IF NOT EXISTS plans (
+  CREATE TABLE IF NOT EXISTS goals (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id),
     title       TEXT    NOT NULL,
@@ -41,7 +41,7 @@ db.exec(`
     status      TEXT    NOT NULL DEFAULT 'not_started',
     priority    TEXT,
     category_id INTEGER REFERENCES categories(id),
-    plan_id     INTEGER REFERENCES plans(id),
+    goal_id     INTEGER REFERENCES goals(id),
     due_date        TEXT,
     notion_page_id  TEXT,
     created_at      TEXT DEFAULT (datetime('now')),
@@ -70,6 +70,10 @@ try { db.exec(`ALTER TABLE plans ADD COLUMN notion_page_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE subtasks ADD COLUMN notion_block_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tasks ADD COLUMN waiting_reason TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tasks ADD COLUMN waiting_until DATE`); } catch {}
+
+// Миграция — переименование plans → goals, plan_id → goal_id
+try { db.exec(`ALTER TABLE plans RENAME TO goals`); } catch {}
+try { db.exec(`ALTER TABLE tasks RENAME COLUMN plan_id TO goal_id`); } catch {}
 
 // Фаза 7 — настройки пользователя и лог уведомлений
 db.exec(`

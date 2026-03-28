@@ -16,11 +16,11 @@ function buildSystemPrompt(categories, plans = []) {
 
 Поле "intent":
 - "create_task" — создать новую задачу
-- "create_plan" — создать пустой план ("создай план", "новый план")
-- "suggest_plan" — спланировать сложную цель с разбивкой на задачи ("хочу", "помоги спланировать", "подготовиться к")
+- "create_goal" — создать пустую цель ("создай цель", "новая цель", "создай план", "новый план")
+- "suggest_goal" — спланировать сложную цель с разбивкой на задачи ("хочу", "помоги спланировать", "подготовиться к")
 - "manage_task" — действие с существующей задачей (удалить, сменить статус, изменить поле)
 - "query_tasks" — показать задачи по фильтру ("покажи задачи", "что в работе", "задачи на сегодня")
-- "manage_plan" — действие с планом (архивировать, удалить, показать задачи)
+- "manage_goal" — действие с целью (архивировать, удалить, показать задачи)
 - "manage_tasks_bulk" — групповое действие над несколькими задачами ("все задачи", "первые три", "половина")
 - "manage_category" — управление категориями ("создай категорию", "удали категорию", "покажи категории")
 - "create_tasks_batch" — создать несколько независимых задач одним сообщением (перечисление через запятую, союзы "и"/"также"/"плюс"). Используй только когда в сообщении явно несколько разных самостоятельных действий/задач, не связанных общей целью/планом.
@@ -78,16 +78,16 @@ function buildSystemPrompt(categories, plans = []) {
 - "Купить молоко, позвонить врачу и записаться на стрижку" → 3 задачи
 - "Заказал книги на OZON и записался на техосмотр на следующей неделе" → 2 задачи, вторая waiting
 
-Если intent = "create_plan", верни:
+Если intent = "create_goal", верни:
 {
-  "intent": "create_plan",
+  "intent": "create_goal",
   "title": string,
   "description": string | null
 }
 
-Если intent = "suggest_plan", верни:
+Если intent = "suggest_goal", верни:
 {
-  "intent": "suggest_plan",
+  "intent": "suggest_goal",
   "title": string,
   "description": string | null,
   "tasks": [
@@ -145,16 +145,16 @@ function buildSystemPrompt(categories, plans = []) {
 - "задачи плана Ремонт" → plan: "Ремонт"
 - "все задачи" → все поля null
 
-Если intent = "manage_plan", верни:
+Если intent = "manage_goal", верни:
 {
-  "intent": "manage_plan",
+  "intent": "manage_goal",
   "search": string,
   "action": "archive" | "delete" | "show_tasks"
 }
-Примеры manage_plan:
-- "архивируй план X" → action: "archive"
-- "удали план X" → action: "delete"
-- "покажи задачи плана X" → action: "show_tasks"
+Примеры manage_goal:
+- "архивируй цель X" / "архивируй план X" → action: "archive"
+- "удали цель X" / "удали план X" → action: "delete"
+- "покажи задачи цели X" / "покажи задачи плана X" → action: "show_tasks"
 
 Если intent = "manage_tasks_bulk", верни:
 {

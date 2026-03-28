@@ -54,7 +54,7 @@ bot.catch((err, ctx) => {
 // ─── Регистрация обработчиков ─────────────────────────────
 
 require('./handlers/tasks').register(bot);
-require('./handlers/plans').register(bot);
+require('./handlers/goals').register(bot);
 require('./handlers/subtasks').register(bot);
 require('./handlers/settings').register(bot);
 require('./handlers/assistant').register(bot);
@@ -71,8 +71,8 @@ bot.launch().then(() => {
   bot.telegram.setMyCommands([
     { command: 'add',      description: 'Добавить задачу' },
     { command: 'tasks',    description: 'Список задач' },
-    { command: 'plans',    description: 'Планы' },
-    { command: 'morning',  description: 'План на день' },
+    { command: 'goals',    description: 'Цели' },
+    { command: 'plan',     description: 'План на день' },
     { command: 'review',   description: 'Вечерний разбор' },
     { command: 'progress',  description: 'Прогресс' },
     { command: 'reminders', description: 'Повторяющиеся напоминания' },

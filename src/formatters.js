@@ -34,7 +34,7 @@ function formatTaskDetail(t) {
   if (t.priority)      lines.push(`*Приоритет:* ${priorityLabel[t.priority] ?? t.priority}`);
   if (t.planned_for)   lines.push(`*Запланировано:* ${t.planned_for}`);
   if (t.description)   lines.push(`*Описание:* ${t.description}`);
-  if (t.plan_title)    lines.push(`*План:* ${t.plan_title}`);
+  if (t.goal_title)    lines.push(`*Цель:* ${t.goal_title}`);
   const subtasks = getSubtasks(t.id);
   if (subtasks.length > 0) {
     const done = subtasks.filter(s => s.is_done).length;
@@ -59,7 +59,7 @@ function formatPreview(task) {
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
   if (task.plannedFor)  lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
   if (task.priority)    lines.push(`*⚡ Приоритет:* ${task.priority}`);
-  if (task.plan)        lines.push(`*📋 План:* ${task.plan}`);
+  if (task.goal)        lines.push(`*📎 Цель:* ${task.goal}`);
   if (task.reminder_at) lines.push(`*🔔 Напомнить:* ${task.reminder_at.slice(0, 16)}`);
   if (task.status === 'waiting') {
     lines.push(`*Статус:* ⏸ В ожидании`);
@@ -137,7 +137,7 @@ function formatBatchTaskPreview(task, index, total) {
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
   if (task.plannedFor) lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
   if (task.priority)  lines.push(`*⚡ Приоритет:* ${task.priority}`);
-  if (task.plan)      lines.push(`*📋 План:* ${task.plan}`);
+  if (task.goal)      lines.push(`*📎 Цель:* ${task.goal}`);
   if (task.status === 'waiting') {
     lines.push(`*Статус:* ⏸ В ожидании`);
     if (task.waiting_reason) lines.push(`*Причина:* ${task.waiting_reason}`);

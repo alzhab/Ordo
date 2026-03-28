@@ -9,7 +9,7 @@ const { renderTaskListFiltered } = require('../renderers');
 const {
   getTasks, getTasksByPlannedDate, getTaskById, updateTask, deleteTask, getUnsyncedTasks,
 } = require('../taskService');
-const { getPlansWithProgress, getPlanById } = require('../planService');
+const { getGoalsWithProgress, getGoalById } = require('../goalService');
 const { getCategoryNames, getCategoryByName, createCategory } = require('../categoryService');
 const {
   getSubtasks, createSubtasks, updateSubtask,
@@ -94,17 +94,17 @@ function register(bot) {
     await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, null, needsNotionLink(task, userId)) });
   });
 
-  // Просмотр задачи из контекста плана
-  bot.action(/^tvp_(\d+)_(\d+)$/, async (ctx) => {
-    const planId = Number(ctx.match[1]);
+  // Просмотр задачи из контекста цели
+  bot.action(/^tvg_(\d+)_(\d+)$/, async (ctx) => {
+    const goalId = Number(ctx.match[1]);
     const taskId = Number(ctx.match[2]);
     const userId = getUser(ctx);
     const task   = getTaskById(taskId);
     await ctx.answerCbQuery();
     if (!task) return ctx.reply('Задача не найдена.');
-    taskPlanContext.set(userId, planId);
+    taskPlanContext.set(userId, goalId);
     await safeDelete(ctx);
-    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
+    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, goalId, needsNotionLink(task, userId)) });
   });
 
   // Смена статуса
@@ -376,20 +376,20 @@ function register(bot) {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state) return ctx.answerCbQuery('Сессия устарела.');
-    const plans = getPlansWithProgress(userId);
-    const rows  = plans.map(p => [Markup.button.callback(p.title, `planpick_${p.id}`)]);
-    rows.push([Markup.button.callback('❌ Без плана', 'planpick_0')]);
+    const goals = getGoalsWithProgress(userId);
+    const rows  = goals.map(g => [Markup.button.callback(g.title, `planpick_${g.id}`)]);
+    rows.push([Markup.button.callback('❌ Без цели', 'planpick_0')]);
     rows.push([Markup.button.callback('◀️ Назад', 'edit_back')]);
     await ctx.answerCbQuery();
-    await safeEdit(ctx, '📋 Выбери план:', Markup.inlineKeyboard(rows));
+    await safeEdit(ctx, '📎 Выбери цель:', Markup.inlineKeyboard(rows));
   });
 
   bot.action(/^planpick_(\d+)$/, async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state) return ctx.answerCbQuery('Сессия устарела.');
-    const planId = Number(ctx.match[1]);
-    state.task.plan = planId === 0 ? null : (getPlanById(planId)?.title ?? null);
+    const goalId = Number(ctx.match[1]);
+    state.task.plan = goalId === 0 ? null : (getGoalById(goalId)?.title ?? null);
     state.editingField = null;
     await safeEdit(ctx, formatPreview(state.task), { parse_mode: 'Markdown', ...confirmButtons });
     ctx.answerCbQuery();
@@ -583,23 +583,23 @@ function register(bot) {
   bot.action(/^esf_plan_(\d+)$/, async (ctx) => {
     const taskId = Number(ctx.match[1]);
     const userId = getUser(ctx);
-    const plans  = getPlansWithProgress(userId);
-    const rows   = plans.map(p => [Markup.button.callback(p.title, `plansaved_${taskId}_${p.id}`)]);
-    rows.push([Markup.button.callback('❌ Убрать из плана', `plansaved_${taskId}_0`)]);
+    const goals  = getGoalsWithProgress(userId);
+    const rows   = goals.map(g => [Markup.button.callback(g.title, `plansaved_${taskId}_${g.id}`)]);
+    rows.push([Markup.button.callback('❌ Убрать из цели', `plansaved_${taskId}_0`)]);
     rows.push([Markup.button.callback('◀️ Назад', `edit_saved_${taskId}`)]);
     await ctx.answerCbQuery();
-    await safeEdit(ctx, '📋 Выбери план:', Markup.inlineKeyboard(rows));
+    await safeEdit(ctx, '📎 Выбери цель:', Markup.inlineKeyboard(rows));
   });
 
   bot.action(/^plansaved_(\d+)_(\d+)$/, async (ctx) => {
     const taskId = Number(ctx.match[1]);
     const newPlanId = Number(ctx.match[2]);
     const userId = getUser(ctx);
-    const updated = updateTask(taskId, { plan_id: newPlanId === 0 ? null : newPlanId });
+    const updated = updateTask(taskId, { goal_id: newPlanId === 0 ? null : newPlanId });
     if (notionEnabled(userId) && updated.notion_page_id) {
-      updateTaskFields(updated.notion_page_id, updated).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `План "${updated.title}": ${e.message}`); });
+      updateTaskFields(updated.notion_page_id, updated).catch(e => { console.error('Notion sync error:', e.message); logSyncError(userId, `Цель "${updated.title}": ${e.message}`); });
     }
-    await ctx.answerCbQuery('✅ План обновлён');
+    await ctx.answerCbQuery('✅ Цель обновлена');
     const planId = taskPlanContext.get(userId) ?? null;
     await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
@@ -652,37 +652,46 @@ function register(bot) {
     await renderTaskListFiltered(ctx, userId, filter, true);
   });
 
-  bot.action('tf_plan', async (ctx) => {
+  const handleTfGoal = async (ctx) => {
     const userId = getUser(ctx);
-    const plans  = getPlansWithProgress(userId);
-    if (!plans.length) return ctx.answerCbQuery('Планов нет.');
-    const rows = plans.map(p => [Markup.button.callback(p.title, `tf_set_plan_${p.id}`)]);
+    const goals  = getGoalsWithProgress(userId);
+    if (!goals.length) return ctx.answerCbQuery('Целей нет.');
+    const rows = goals.map(g => [Markup.button.callback(g.title, `tf_set_plan_${g.id}`)]);
     rows.push([Markup.button.callback('◀️ Назад', 'tf_back')]);
     await ctx.answerCbQuery();
-    await safeEdit(ctx, '📋 Фильтр по плану:', Markup.inlineKeyboard(rows));
-  });
+    await safeEdit(ctx, '📎 Фильтр по цели:', Markup.inlineKeyboard(rows));
+  };
+  bot.action('tf_goal', handleTfGoal);
+  bot.action('tf_plan', handleTfGoal);
 
   bot.action(/^tf_set_plan_(\d+)$/, async (ctx) => {
     const userId = getUser(ctx);
-    const planId = Number(ctx.match[1]);
-    const plan   = getPlanById(planId);
+    const goalId = Number(ctx.match[1]);
+    const goal   = getGoalById(goalId);
     const filter = getFilter(userId);
-    filter.planId    = planId;
-    filter.planTitle = plan?.title ?? 'План';
+    filter.goalId    = goalId;
+    filter.goalTitle = goal?.title ?? 'Цель';
+    // Legacy aliases
+    filter.planId    = goalId;
+    filter.planTitle = goal?.title ?? 'Цель';
     taskFilters.set(userId, filter);
     await ctx.answerCbQuery();
     await renderTaskListFiltered(ctx, userId, filter, true);
   });
 
-  bot.action('tf_clear_plan', async (ctx) => {
+  const handleTfClearGoal = async (ctx) => {
     const userId = getUser(ctx);
     const filter = getFilter(userId);
+    delete filter.goalId;
+    delete filter.goalTitle;
     delete filter.planId;
     delete filter.planTitle;
     taskFilters.set(userId, filter);
     await ctx.answerCbQuery();
     await renderTaskListFiltered(ctx, userId, filter, true);
-  });
+  };
+  bot.action('tf_clear_goal', handleTfClearGoal);
+  bot.action('tf_clear_plan', handleTfClearGoal);
 
   bot.action('tf_search', async (ctx) => {
     const userId = getUser(ctx);

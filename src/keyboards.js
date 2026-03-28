@@ -49,10 +49,15 @@ function buildCategoryButtons(categories, withBack = false) {
   return Markup.inlineKeyboard(rows);
 }
 
-function buildPlansKeyboard(plans) {
-  const rows = plans.map(p => [Markup.button.callback(formatPlanLine(p), `pv_${p.id}`)]);
-  rows.push([Markup.button.callback('➕ Новый план', 'plan_new'), Markup.button.callback('📦 Архив', 'plans_archive')]);
+function buildGoalsKeyboard(goals) {
+  const rows = goals.map(g => [Markup.button.callback(formatPlanLine(g), `gv_${g.id}`)]);
+  rows.push([Markup.button.callback('➕ Новая цель', 'goal_new'), Markup.button.callback('📦 Архив', 'goals_archive')]);
   return rows;
+}
+
+// Legacy alias
+function buildPlansKeyboard(plans) {
+  return buildGoalsKeyboard(plans);
 }
 
 function stepsButtons(taskId, subtasks) {
@@ -72,5 +77,5 @@ function stepsButtons(taskId, subtasks) {
 module.exports = {
   confirmButtons,
   taskButtons, taskDetailButtons,
-  buildCategoryButtons, buildPlansKeyboard, stepsButtons,
+  buildCategoryButtons, buildGoalsKeyboard, buildPlansKeyboard, stepsButtons,
 };

@@ -1,6 +1,6 @@
 const db = require('./db');
 const { getCategoryByName, createCategory, PRIORITY_MAP } = require('./categoryService');
-const { getPlanByTitle } = require('./planService');
+const { getGoalByTitle } = require('./goalService');
 
 function createTask(userId, parsed) {
   // Категория: найти или создать
@@ -11,15 +11,15 @@ function createTask(userId, parsed) {
     categoryId = cat.id;
   }
 
-  // План: резолвим название в id
-  let planId = parsed.plan_id ?? null;
-  if (!planId && parsed.plan) {
-    const plan = getPlanByTitle(userId, parsed.plan);
-    planId = plan?.id ?? null;
+  // Цель: резолвим название в id (поддержка legacy plan_id)
+  let goalId = parsed.goal_id ?? parsed.plan_id ?? null;
+  if (!goalId && parsed.plan) {
+    const goal = getGoalByTitle(userId, parsed.plan);
+    goalId = goal?.id ?? null;
   }
 
   const result = db.prepare(`
-    INSERT INTO tasks (user_id, title, description, status, priority, category_id, plan_id, planned_for, waiting_reason, waiting_until, reminder_at)
+    INSERT INTO tasks (user_id, title, description, status, priority, category_id, goal_id, planned_for, waiting_reason, waiting_until, reminder_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
@@ -28,7 +28,7 @@ function createTask(userId, parsed) {
     parsed.status ?? 'not_started',
     PRIORITY_MAP[parsed.priority] ?? null,
     categoryId,
-    planId,
+    goalId,
     parsed.plannedFor ?? null,
     parsed.waiting_reason ?? null,
     parsed.waiting_until ?? null,
@@ -40,16 +40,16 @@ function createTask(userId, parsed) {
 
 function getTaskById(id) {
   return db.prepare(`
-    SELECT t.*, c.name AS category_name, p.title AS plan_title, p.notion_page_id AS plan_notion_page_id
+    SELECT t.*, t.goal_id AS plan_id, c.name AS category_name, g.title AS goal_title, g.title AS plan_title, g.notion_page_id AS goal_notion_page_id
     FROM tasks t
     LEFT JOIN categories c ON c.id = t.category_id
-    LEFT JOIN plans p ON p.id = t.plan_id
+    LEFT JOIN goals g ON g.id = t.goal_id
     WHERE t.id = ?
   `).get(id);
 }
 
 function getTasks(userId, filter = {}) {
-  const { status, category, planId, search, includeArchived = false } = filter;
+  const { status, category, goalId, planId, search, includeArchived = false } = filter;
   const conditions = ['t.user_id = ?'];
   const params = [userId];
 
@@ -61,15 +61,17 @@ function getTasks(userId, filter = {}) {
     conditions.push("t.status NOT IN ('deleted', 'done')");
   }
   if (!includeArchived) {
-    conditions.push("(t.plan_id IS NULL OR p.status != 'archived')");
+    conditions.push("(t.goal_id IS NULL OR g.status != 'archived')");
   }
   if (category) {
     conditions.push('c.name = ?');
     params.push(category);
   }
-  if (planId) {
-    conditions.push('t.plan_id = ?');
-    params.push(planId);
+  // Support both goalId (new) and planId (legacy alias)
+  const effectiveGoalId = goalId ?? planId ?? null;
+  if (effectiveGoalId) {
+    conditions.push('t.goal_id = ?');
+    params.push(effectiveGoalId);
   }
   if (search) {
     conditions.push('(t.title LIKE ? OR t.description LIKE ?)');
@@ -81,10 +83,10 @@ function getTasks(userId, filter = {}) {
     : `t.created_at DESC`;
 
   return db.prepare(`
-    SELECT t.*, c.name AS category_name, p.title AS plan_title, p.notion_page_id AS plan_notion_page_id
+    SELECT t.*, t.goal_id AS plan_id, c.name AS category_name, g.title AS goal_title, g.title AS plan_title, g.notion_page_id AS goal_notion_page_id
     FROM tasks t
     LEFT JOIN categories c ON c.id = t.category_id
-    LEFT JOIN plans p ON p.id = t.plan_id
+    LEFT JOIN goals g ON g.id = t.goal_id
     WHERE ${conditions.join(' AND ')}
     ORDER BY ${orderBy}
   `).all(...params);
@@ -100,18 +102,26 @@ function getTasksByPlannedDate(userId, date) {
   `).all(userId, date);
 }
 
-function getTasksByPlan(userId, planId) {
+function getTasksByGoal(userId, goalId) {
   return db.prepare(`
     SELECT t.*, c.name AS category_name
     FROM tasks t
     LEFT JOIN categories c ON c.id = t.category_id
-    WHERE t.user_id = ? AND t.plan_id = ? AND t.status != 'deleted'
+    WHERE t.user_id = ? AND t.goal_id = ? AND t.status != 'deleted'
     ORDER BY t.created_at DESC
-  `).all(userId, planId);
+  `).all(userId, goalId);
 }
 
+// Legacy alias
+const getTasksByPlan = getTasksByGoal;
+
 function updateTask(id, fields) {
-  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'plan_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
+  // Normalize legacy plan_id → goal_id
+  if ('plan_id' in fields && !('goal_id' in fields)) {
+    fields = { ...fields, goal_id: fields.plan_id };
+    delete fields.plan_id;
+  }
+  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 
@@ -131,10 +141,10 @@ function deleteTask(id) {
 
 function getUnsyncedTasks(userId) {
   return db.prepare(`
-    SELECT t.*, c.name AS category_name, p.title AS plan_title
+    SELECT t.*, c.name AS category_name, g.title AS goal_title
     FROM tasks t
     LEFT JOIN categories c ON c.id = t.category_id
-    LEFT JOIN plans p ON p.id = t.plan_id
+    LEFT JOIN goals g ON g.id = t.goal_id
     WHERE t.user_id = ? AND t.status != 'deleted' AND (t.notion_page_id IS NULL OR t.notion_page_id = '')
   `).all(userId);
 }
@@ -150,4 +160,4 @@ function getDueReminders() {
   `).all();
 }
 
-module.exports = { createTask, getTaskById, getTasks, getTasksByPlannedDate, getTasksByPlan, updateTask, deleteTask, getUnsyncedTasks, getDueReminders };
+module.exports = { createTask, getTaskById, getTasks, getTasksByPlannedDate, getTasksByGoal, getTasksByPlan, updateTask, deleteTask, getUnsyncedTasks, getDueReminders };
