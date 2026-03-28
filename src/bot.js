@@ -7,8 +7,7 @@ if (process.env.RESTORE_DATA) {
   try {
     const db = require('./db');
     const code = Buffer.from(process.env.RESTORE_DATA, 'base64').toString('utf8');
-    const fn = new Function('db', code);
-    fn(db);
+    eval(code);
     console.log('✅ Данные восстановлены из RESTORE_DATA');
   } catch (e) {
     console.error('❌ Ошибка восстановления:', e.message);
