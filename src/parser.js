@@ -24,6 +24,7 @@ function buildSystemPrompt(categories, plans = []) {
 - "manage_tasks_bulk" — групповое действие над несколькими задачами ("все задачи", "первые три", "половина")
 - "manage_category" — управление категориями ("создай категорию", "удали категорию", "покажи категории")
 - "create_tasks_batch" — создать несколько независимых задач одним сообщением (перечисление через запятую, союзы "и"/"также"/"плюс"). Используй только когда в сообщении явно несколько разных самостоятельных действий/задач, не связанных общей целью/планом.
+- "manage_settings" — изменить настройки ассистента ("не беспокой", "тихий режим", "поставь план на ...", "выключи/включи напоминания")
 
 Если intent = "create_task", верни:
 {
@@ -179,6 +180,25 @@ function buildSystemPrompt(categories, plans = []) {
 - "создай категорию Спорт" → action: "create", name: "Спорт"
 - "удали категорию Дом" → action: "delete", name: "Дом"
 - "покажи категории" / "какие у меня категории" → action: "list", name: null
+
+Если intent = "manage_settings", верни:
+{
+  "intent": "manage_settings",
+  "action": "set_morning_time" | "set_evening_time" | "set_quiet_mode" | "disable_morning" | "enable_morning" | "disable_review" | "enable_review" | "disable_all" | "enable_all",
+  "time": "HH:MM" | null,
+  "until": ISO datetime string | null
+}
+Примеры manage_settings:
+- "поставь план на 8 утра" / "присылай утренний план в 8" → action: "set_morning_time", time: "08:00"
+- "вечерний разбор в 22:00" → action: "set_evening_time", time: "22:00"
+- "не беспокой до завтра" → action: "set_quiet_mode", until: <завтра 09:00>
+- "не беспокой до воскресенья" → action: "set_quiet_mode", until: <ближайшее воскресенье 09:00>
+- "выключи утренний план" → action: "disable_morning"
+- "включи утренний план" → action: "enable_morning"
+- "выключи вечерний разбор" → action: "disable_review"
+- "включи вечерний разбор" → action: "enable_review"
+- "выключи все напоминания" → action: "disable_all"
+- "включи напоминания" → action: "enable_all"
 
 Сегодняшняя дата: ${new Date().toISOString().split('T')[0]}
 Существующие категории задач: ${categoryList}

@@ -1,6 +1,7 @@
 const { Markup } = require('telegraf');
 const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../state');
+const { getSettings, updateSettings } = require('../assistantService');
 const { fuzzyMatch } = require('../fuzzy');
 const {
   STATUS_LABEL_RU,
@@ -441,6 +442,7 @@ async function handleText(ctx, text) {
   if (parsed.intent === 'query_tasks')       return handleQueryTasks(ctx, userId, parsed);
   if (parsed.intent === 'manage_plan')       return handleManagePlan(ctx, userId, parsed);
   if (parsed.intent === 'manage_category')   return handleManageCategory(ctx, userId, parsed);
+  if (parsed.intent === 'manage_settings')   return handleManageSettings(ctx, userId, parsed);
 
   if (parsed.intent === 'create_plan') {
     const plan = createPlan(userId, { title: parsed.title, description: parsed.description });
@@ -475,6 +477,55 @@ async function handleText(ctx, text) {
   if (!task.category) task.category = 'Общее';
   pendingTasks.set(userId, { task, editingField: null });
   ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+}
+
+function handleManageSettings(ctx, userId, parsed) {
+  const { action, time, until } = parsed;
+
+  switch (action) {
+    case 'set_morning_time':
+      updateSettings(userId, { morning_time: time });
+      return ctx.reply(`✅ Утренний план теперь в *${time}*`, { parse_mode: 'Markdown' });
+
+    case 'set_evening_time':
+      updateSettings(userId, { evening_time: time });
+      return ctx.reply(`✅ Вечерний разбор теперь в *${time}*`, { parse_mode: 'Markdown' });
+
+    case 'set_quiet_mode': {
+      const untilStr = until || new Date(Date.now() + 86400000).toISOString();
+      updateSettings(userId, { quiet_until: untilStr });
+      const d = new Date(untilStr);
+      const fmt = `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return ctx.reply(`🔕 Тихий режим до ${fmt}. Напоминания не приду.`);
+    }
+
+    case 'disable_morning':
+      updateSettings(userId, { morning_enabled: 0 });
+      return ctx.reply('🔕 Утренний план отключён. Включить: напиши "включи утренний план".');
+
+    case 'enable_morning':
+      updateSettings(userId, { morning_enabled: 1 });
+      return ctx.reply('✅ Утренний план включён.');
+
+    case 'disable_review':
+      updateSettings(userId, { review_enabled: 0 });
+      return ctx.reply('🔕 Вечерний разбор отключён.');
+
+    case 'enable_review':
+      updateSettings(userId, { review_enabled: 1 });
+      return ctx.reply('✅ Вечерний разбор включён.');
+
+    case 'disable_all':
+      updateSettings(userId, { morning_enabled: 0, review_enabled: 0 });
+      return ctx.reply('🔕 Все автоматические уведомления отключены.');
+
+    case 'enable_all':
+      updateSettings(userId, { morning_enabled: 1, review_enabled: 1, quiet_until: null });
+      return ctx.reply('✅ Все уведомления включены.');
+
+    default:
+      return ctx.reply('Не понял настройку. Попробуй: "поставь план на 9 утра" или "не беспокой до завтра".');
+  }
 }
 
 function register(bot) {
