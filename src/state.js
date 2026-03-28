@@ -7,7 +7,7 @@ const processingUsers = new Set(); // userId — защита от двойно�
 
 function getFilter(userId) {
   if (!taskFilters.has(userId)) {
-    taskFilters.set(userId, { status: 'in_progress' });
+    taskFilters.set(userId, {});
   }
   return taskFilters.get(userId);
 }
