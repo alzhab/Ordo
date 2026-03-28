@@ -240,7 +240,8 @@ async function handleReminders(ctx) {
 }
 
 function register(bot) {
-  bot.command('morning', handleMorning);
+  bot.command('plan', handleMorning);
+  bot.command('morning', handleMorning); // backwards compat
   bot.command('review', handleReview);
   bot.command('progress', handleProgress);
   bot.command('reminders', handleReminders);
