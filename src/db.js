@@ -71,4 +71,28 @@ try { db.exec(`ALTER TABLE subtasks ADD COLUMN notion_block_id TEXT`); } catch {
 try { db.exec(`ALTER TABLE tasks ADD COLUMN waiting_reason TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tasks ADD COLUMN waiting_until DATE`); } catch {}
 
+// Фаза 7 — настройки пользователя и лог уведомлений
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_settings (
+    user_id       INTEGER PRIMARY KEY REFERENCES users(id),
+    morning_time  TEXT    NOT NULL DEFAULT '09:00',
+    evening_time  TEXT    NOT NULL DEFAULT '21:00',
+    timezone      TEXT    NOT NULL DEFAULT 'Asia/Almaty',
+    morning_enabled INTEGER NOT NULL DEFAULT 1,
+    review_enabled  INTEGER NOT NULL DEFAULT 1,
+    quiet_until   TEXT,
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS notification_log (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id   INTEGER NOT NULL REFERENCES users(id),
+    type      TEXT    NOT NULL,
+    task_id   INTEGER REFERENCES tasks(id),
+    sent_at   TEXT    DEFAULT (datetime('now')),
+    reacted   INTEGER NOT NULL DEFAULT 0
+  );
+`);
+
 module.exports = db;

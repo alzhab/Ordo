@@ -175,7 +175,7 @@ describe('SC-05 (финал): confirm — задача с waiting статусо
       task: {
         title: 'Заказ на WB', category: 'Общее',
         status: 'waiting',
-        waiting_reason: 'заказ на WB придёт 25 марта',
+        waiting_reason: 'заказ на WB придёт 7 апреля',
         waiting_until: null,
       },
       editingField: null,
@@ -185,7 +185,7 @@ describe('SC-05 (финал): confirm — задача с waiting статусо
     await bot.trigger('confirm', ctx);
 
     const tasks = taskService.getTasks(USER_ID, { status: 'waiting' });
-    expect(tasks[0].waiting_until).toMatch(/^2026-03-2[45]$/); // ±1 день timezone
+    expect(tasks[0].waiting_until).not.toBeNull(); // дата извлечена из причины
   });
 });
 

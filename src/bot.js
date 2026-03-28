@@ -110,6 +110,7 @@ require('./handlers/tasks').register(bot);
 require('./handlers/plans').register(bot);
 require('./handlers/subtasks').register(bot);
 require('./handlers/settings').register(bot);
+require('./handlers/assistant').register(bot);
 require('./handlers/intent').register(bot);
 
 // ─── Запуск ───────────────────────────────────────────────
@@ -121,6 +122,10 @@ bot.launch().then(() => {
     { command: 'tasks',    description: 'Список задач' },
     { command: 'today',    description: 'Задачи на сегодня' },
     { command: 'plans',    description: 'Планы' },
+    { command: 'morning',  description: 'План на день' },
+    { command: 'review',   description: 'Вечерний разбор' },
+    { command: 'focus',    description: 'Что делать прямо сейчас' },
+    { command: 'progress', description: 'Прогресс' },
     { command: 'settings', description: 'Настройки и интеграции' },
     { command: 'help',     description: 'Помощь' },
   ]);
