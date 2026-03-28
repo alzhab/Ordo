@@ -129,7 +129,7 @@
 }
 
 .day-time {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--vp-c-brand-1);
 }
@@ -146,7 +146,7 @@
 
 .day-example div[class*="language-"] {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .day-result {
