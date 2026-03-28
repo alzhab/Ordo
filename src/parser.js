@@ -25,6 +25,7 @@ function buildSystemPrompt(categories, plans = []) {
 - "manage_category" — управление категориями ("создай категорию", "удали категорию", "покажи категории")
 - "create_tasks_batch" — создать несколько независимых задач одним сообщением (перечисление через запятую, союзы "и"/"также"/"плюс"). Используй только когда в сообщении явно несколько разных самостоятельных действий/задач, не связанных общей целью/планом.
 - "manage_settings" — изменить настройки ассистента ("не беспокой", "тихий режим", "поставь план на ...", "выключи/включи напоминания")
+- "create_recurring" — создать повторяющееся напоминание ("каждый понедельник", "каждый день в ...", "напомни мне каждую неделю", "1-го числа каждого месяца")
 
 Если intent = "create_task", верни:
 {
@@ -180,6 +181,25 @@ function buildSystemPrompt(categories, plans = []) {
 - "создай категорию Спорт" → action: "create", name: "Спорт"
 - "удали категорию Дом" → action: "delete", name: "Дом"
 - "покажи категории" / "какие у меня категории" → action: "list", name: null
+
+Если intent = "create_recurring", верни:
+{
+  "intent": "create_recurring",
+  "title": string,
+  "event_time": "HH:MM",
+  "days": [0-6] | null,
+  "day_of_month": number | null,
+  "reminder_before_minutes": number
+}
+days — массив дней недели: 0=воскресенье, 1=понедельник, ..., 6=суббота. null — ежедневно или если указан day_of_month.
+day_of_month — число месяца (1-31), null если не ежемесячно.
+reminder_before_minutes — за сколько минут до event_time прислать напоминание. 0 если не указано.
+Примеры create_recurring:
+- "каждый понедельник в 23:00 созвон, напомни за 30 минут" → title: "Созвон", event_time: "23:00", days: [1], reminder_before_minutes: 30
+- "каждый день в 8 утра пить таблетки" → title: "Пить таблетки", event_time: "08:00", days: null, reminder_before_minutes: 0
+- "спортзал вторник и четверг в 18:00, напомни за час" → title: "Спортзал", event_time: "18:00", days: [2,4], reminder_before_minutes: 60
+- "оплата аренды 1-го числа" → title: "Оплата аренды", event_time: "09:00", day_of_month: 1, days: null, reminder_before_minutes: 0
+- "рабочие дни в 9:30 стендап" → title: "Стендап", event_time: "09:30", days: [1,2,3,4,5], reminder_before_minutes: 0
 
 Если intent = "manage_settings", верни:
 {

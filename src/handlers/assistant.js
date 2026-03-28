@@ -5,6 +5,7 @@ const {
   logNotification, wasNotifiedToday, isQuietMode,
 } = require('../assistantService');
 const { getTaskById, updateTask, getTasks } = require('../taskService');
+const { getAll: getAllRecurring, remove: removeRecurring, formatSchedule } = require('../recurringService');
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -196,11 +197,38 @@ async function handleProgress(ctx) {
 
 // ─── Кнопки ──────────────────────────────────────────────────
 
+async function handleReminders(ctx) {
+  getUser(ctx);
+  const userId = ctx.from.id;
+  const items = getAllRecurring(userId);
+
+  if (!items.length) {
+    return ctx.reply(
+      'Повторяющихся напоминаний нет.\n\nДобавь голосом или текстом:\n"Каждый понедельник в 23:00 созвон, напомни за 30 минут"'
+    );
+  }
+
+  const lines = ['🔄 *Повторяющиеся напоминания:*\n'];
+  items.forEach((r, i) => {
+    lines.push(`${i + 1}. *${r.title}*\n   ${formatSchedule(r)}`);
+  });
+
+  const buttons = items.map(r => [
+    Markup.button.callback(`🗑 Удалить: ${r.title}`, `rec_del_${r.id}`),
+  ]);
+
+  await ctx.reply(lines.join('\n'), {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard(buttons),
+  });
+}
+
 function register(bot) {
   bot.command('morning', handleMorning);
   bot.command('review', handleReview);
   bot.command('focus', handleFocus);
   bot.command('progress', handleProgress);
+  bot.command('reminders', handleReminders);
 
   // Morning
   bot.action('ast_morning_ok', ctx => {
@@ -265,6 +293,15 @@ function register(bot) {
     ctx.answerCbQuery();
     ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     handleFocus(ctx);
+  });
+
+  // Recurring — удаление
+  bot.action(/^rec_del_(\d+)$/, ctx => {
+    const id = parseInt(ctx.match[1]);
+    removeRecurring(id);
+    ctx.answerCbQuery('Удалено');
+    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    ctx.reply('🗑 Напоминание удалено.');
   });
 }
 

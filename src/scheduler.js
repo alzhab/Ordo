@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const db = require('./db');
 const { wasNotifiedToday, isQuietMode } = require('./assistantService');
 const { handleMorning, handleReview } = require('./handlers/assistant');
+const { getDueNow } = require('./recurringService');
 
 // Получить всех активных пользователей с их настройками
 function getActiveUsers() {
@@ -62,6 +63,24 @@ function start(bot) {
     } catch (e) {
       console.error('[scheduler] getActiveUsers error:', e.message);
       return;
+    }
+
+    // Повторяющиеся задачи — проверяем один раз для всех
+    try {
+      const now = new Date();
+      const currentHHMM = getCurrentHHMM('Asia/Almaty');
+      const currentDay = now.getDay();
+      const currentDayOfMonth = now.getDate();
+      const due = getDueNow(currentHHMM, currentDay, currentDayOfMonth);
+      for (const r of due) {
+        console.log(`[scheduler] recurring "${r.title}" → user ${r.user_id}`);
+        const text = r.reminder_before_minutes > 0
+          ? `🔔 Напоминание: *${r.title}* через ${r.reminder_before_minutes} мин.`
+          : `🔔 *${r.title}*`;
+        await bot.telegram.sendMessage(r.user_id, text, { parse_mode: 'Markdown' });
+      }
+    } catch (e) {
+      console.error('[scheduler] recurring error:', e.message);
     }
 
     for (const user of users) {

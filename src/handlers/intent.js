@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../state');
 const { getSettings, updateSettings } = require('../assistantService');
+const { create: createRecurring, formatSchedule } = require('../recurringService');
 const { fuzzyMatch } = require('../fuzzy');
 const {
   STATUS_LABEL_RU,
@@ -443,6 +444,7 @@ async function handleText(ctx, text) {
   if (parsed.intent === 'manage_plan')       return handleManagePlan(ctx, userId, parsed);
   if (parsed.intent === 'manage_category')   return handleManageCategory(ctx, userId, parsed);
   if (parsed.intent === 'manage_settings')   return handleManageSettings(ctx, userId, parsed);
+  if (parsed.intent === 'create_recurring')  return handleCreateRecurring(ctx, userId, parsed);
 
   if (parsed.intent === 'create_plan') {
     const plan = createPlan(userId, { title: parsed.title, description: parsed.description });
@@ -477,6 +479,21 @@ async function handleText(ctx, text) {
   if (!task.category) task.category = 'Общее';
   pendingTasks.set(userId, { task, editingField: null });
   ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+}
+
+function handleCreateRecurring(ctx, userId, parsed) {
+  const r = createRecurring(userId, {
+    title: parsed.title,
+    event_time: parsed.event_time,
+    days: parsed.days ?? null,
+    day_of_month: parsed.day_of_month ?? null,
+    reminder_before_minutes: parsed.reminder_before_minutes ?? 0,
+  });
+  const schedule = formatSchedule(r);
+  return ctx.reply(
+    `✅ Создано повторяющееся напоминание\n🔄 *${r.title}*\n${schedule}\n\nПосмотреть все: /reminders`,
+    { parse_mode: 'Markdown' }
+  );
 }
 
 function handleManageSettings(ctx, userId, parsed) {

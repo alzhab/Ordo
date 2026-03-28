@@ -129,8 +129,9 @@ bot.launch().then(() => {
     { command: 'morning',  description: 'План на день' },
     { command: 'review',   description: 'Вечерний разбор' },
     { command: 'focus',    description: 'Что делать прямо сейчас' },
-    { command: 'progress', description: 'Прогресс' },
-    { command: 'settings', description: 'Настройки и интеграции' },
+    { command: 'progress',  description: 'Прогресс' },
+    { command: 'reminders', description: 'Повторяющиеся напоминания' },
+    { command: 'settings',  description: 'Настройки и интеграции' },
     { command: 'help',     description: 'Помощь' },
   ]);
 });
