@@ -119,13 +119,21 @@ hero:
 <div class="step">
 <div class="step-num">4</div>
 <div class="step-body">
+<div class="step-title">Планы объединяют задачи по целям</div>
+<div class="step-desc">Свадьба, ремонт, инвестиции — каждый проект живёт отдельно. Видишь прогресс, добавляешь задачи, архивируешь когда готово.</div>
+</div>
+</div>
+
+<div class="step">
+<div class="step-num">5</div>
+<div class="step-body">
 <div class="step-title">Утром — план на день с объяснением приоритетов</div>
 <div class="step-desc">Ordo анализирует все задачи и сам решает что важнее — на основе дедлайнов, зависимостей и контекста. Ты соглашаешься или корректируешь.</div>
 </div>
 </div>
 
 <div class="step">
-<div class="step-num">5</div>
+<div class="step-num">6</div>
 <div class="step-body">
 <div class="step-title">Вечером разбирает зависшее — сам</div>
 <div class="step-desc">Поднимает задачи которые давно не двигались и задаёт один вопрос. Три нажатия — голова чистая перед сном.</div>
@@ -133,7 +141,7 @@ hero:
 </div>
 
 <div class="step">
-<div class="step-num">6</div>
+<div class="step-num">7</div>
 <div class="step-body">
 <div class="step-title">Прогресс по всем планам сразу</div>
 <div class="step-desc">Видишь что движется, а что стоит — по каждому проекту и цели. Не нужно держать всю картину в голове.</div>
