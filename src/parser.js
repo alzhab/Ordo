@@ -39,8 +39,14 @@ function buildSystemPrompt(categories, plans = []) {
   "subtasks": [string, ...] | null,
   "status": "waiting" | null,
   "waiting_reason": string | null,
-  "waiting_until": ISO date string | null
+  "waiting_until": ISO date string | null,
+  "reminder_at": "YYYY-MM-DD HH:MM" | null
 }
+Поле "reminder_at" — когда прислать напоминание о задаче. Признаки: "напомни", "напомни мне", "поставь напоминание", "напомни за N часов/минут до". Если "за N минут до дедлайна" — вычисли reminder_at = dueDate минус N минут. Если только "напомни" без времени и есть dueDate — поставь 09:00 того же дня. Если нет dueDate — поставь завтра 09:00.
+Примеры create_task с reminder_at:
+- "Купить молоко завтра, напомни в 10 утра" → reminder_at: "<завтра> 10:00"
+- "Встреча в пятницу в 15:00, напомни за 30 минут" → reminder_at: "<пятница> 14:30"
+- "Позвонить врачу 5 апреля, напомни" → reminder_at: "2026-04-05 09:00"
 Если пользователь перечисляет шаги, этапы или подзадачи — помести их в subtasks, а не в description. description — краткое пояснение к задаче, subtasks — конкретные шаги выполнения.
 Если задача описывает уже совершённое действие, результата которого пользователь ждёт — ставь status: "waiting". Признаки: "я записался", "я заказал", "я отправил", "я договорился", "жду", "должно прийти", "должны позвонить". В waiting_reason — краткая причина ожидания, в waiting_until — дата если упомянута.
 Примеры create_task с waiting:
@@ -62,7 +68,8 @@ function buildSystemPrompt(categories, plans = []) {
       "subtasks": [string, ...] | null,
       "status": "waiting" | null,
       "waiting_reason": string | null,
-      "waiting_until": ISO date string | null
+      "waiting_until": ISO date string | null,
+      "reminder_at": "YYYY-MM-DD HH:MM" | null
     }
   ]
 }
@@ -99,14 +106,15 @@ function buildSystemPrompt(categories, plans = []) {
 {
   "intent": "manage_task",
   "search": string,
-  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_date" | "set_priority" | "set_waiting",
+  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_date" | "set_priority" | "set_waiting" | "set_reminder",
   "status": "not_started" | "in_progress" | "waiting" | "done" | null,
   "plan": string | null,
   "category": string | null,
   "date": ISO date string | null,
   "priority": "Высокий" | "Средний" | "Низкий" | null,
   "waiting_reason": string | null,
-  "waiting_until": ISO date string | null
+  "waiting_until": ISO date string | null,
+  "reminder_at": "YYYY-MM-DD HH:MM" | null
 }
 Примеры manage_task:
 - "удали задачу X" → action: "delete"
@@ -119,6 +127,8 @@ function buildSystemPrompt(categories, plans = []) {
 - "задача X в ожидании, жду доставку с WB до 25 марта" → action: "set_waiting", waiting_reason: "жду доставку с WB", waiting_until: "2026-03-25"
 - "задача X в ожидании, жду ответа от врача" → action: "set_waiting", waiting_reason: "жду ответа от врача", waiting_until: null
 - "задача X ждёт" / "X pending" / "жду по X" → action: "set_waiting"
+- "напомни про X завтра в 10:00" → action: "set_reminder", reminder_at: "<завтра> 10:00"
+- "напомни мне про X в пятницу" → action: "set_reminder", reminder_at: "<пятница> 09:00"
 
 Если intent = "query_tasks", верни:
 {

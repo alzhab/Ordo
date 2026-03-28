@@ -19,8 +19,8 @@ function createTask(userId, parsed) {
   }
 
   const result = db.prepare(`
-    INSERT INTO tasks (user_id, title, description, status, priority, category_id, plan_id, due_date, waiting_reason, waiting_until)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (user_id, title, description, status, priority, category_id, plan_id, due_date, waiting_reason, waiting_until, reminder_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     parsed.title,
@@ -32,6 +32,7 @@ function createTask(userId, parsed) {
     parsed.dueDate ?? null,
     parsed.waiting_reason ?? null,
     parsed.waiting_until ?? null,
+    parsed.reminder_at ?? null,
   );
 
   return getTaskById(result.lastInsertRowid);
@@ -111,7 +112,7 @@ function getTasksByPlan(userId, planId) {
 }
 
 function updateTask(id, fields) {
-  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'plan_id', 'due_date', 'notion_page_id', 'waiting_reason', 'waiting_until'];
+  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'plan_id', 'due_date', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 
@@ -139,4 +140,15 @@ function getUnsyncedTasks(userId) {
   `).all(userId);
 }
 
-module.exports = { createTask, getTaskById, getTasks, getTasksToday, getTasksByPlan, updateTask, deleteTask, getUnsyncedTasks };
+function getDueReminders() {
+  return db.prepare(`
+    SELECT *
+    FROM tasks
+    WHERE reminder_at IS NOT NULL
+      AND reminder_sent = 0
+      AND status NOT IN ('done', 'deleted')
+      AND datetime(reminder_at) <= datetime('now')
+  `).all();
+}
+
+module.exports = { createTask, getTaskById, getTasks, getTasksToday, getTasksByPlan, updateTask, deleteTask, getUnsyncedTasks, getDueReminders };

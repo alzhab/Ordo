@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId } = require('../helpers');
+const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../state');
 const { getSettings, updateSettings } = require('../assistantService');
 const { create: createRecurring, formatSchedule } = require('../recurringService');
@@ -104,6 +104,13 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
       }
       return ctx.reply(
         `⏸ *${task.title}* — в ожидании${actionObj.waiting_reason ? `\n_${actionObj.waiting_reason}_` : ''}`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Открыть', `tv_${task.id}`)]]) }
+      );
+    }
+    case 'set_reminder': {
+      const updated = updateTask(task.id, { reminder_at: actionObj.reminder_at, reminder_sent: 0 });
+      return ctx.reply(
+        `🔔 *${task.title}*\nНапомню: ${actionObj.reminder_at?.slice(0, 16) ?? '—'}`,
         { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Открыть', `tv_${task.id}`)]]) }
       );
     }
@@ -404,8 +411,14 @@ async function handleText(ctx, text) {
     const { id, field } = state.editingSavedTask;
     delete state.editingSavedTask;
     pendingTasks.set(userId, state);
-    const value = (field === 'due_date' || field === 'waiting_until') ? parseFlexibleDate(text) : text;
-    const updated = updateTask(id, { [field]: value });
+    let value;
+    if (field === 'reminder_at') value = parseReminderDatetime(text);
+    else if (field === 'due_date' || field === 'waiting_until') value = parseFlexibleDate(text);
+    else value = text;
+    const fields = field === 'reminder_at'
+      ? { reminder_at: value, reminder_sent: 0 }
+      : { [field]: value };
+    const updated = updateTask(id, fields);
     if (notionEnabled(userId) && updated.notion_page_id) {
       updateTaskFields(updated.notion_page_id, updated).catch(e => {
         console.error('Notion sync error:', e.message);

@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId } = require('../helpers');
+const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter, taskPlanContext, acquireProcessing, releaseProcessing } = require('../state');
 const { formatTaskDetail, formatPreview } = require('../formatters');
 const {
@@ -186,6 +186,18 @@ function register(bot) {
       Markup.button.callback('Да, удалить', `ts_confirm_delete_${taskId}`),
       Markup.button.callback('Отмена', 'ts_cancel_delete'),
     ]));
+  });
+
+  // Быстрая отметка выполнено из напоминания
+  bot.action(/^ts_done_(\d+)$/, async (ctx) => {
+    const taskId = Number(ctx.match[1]);
+    const userId = getUser(ctx);
+    const updated = updateTask(taskId, { status: 'done' });
+    if (notionEnabled(userId) && updated.notion_page_id) {
+      updateTaskStatus(updated.notion_page_id, 'done').catch(() => {});
+    }
+    await ctx.answerCbQuery('✅ Готово!');
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   });
 
   bot.action(/^ts_confirm_delete_(\d+)$/, async (ctx) => {
@@ -420,6 +432,7 @@ function register(bot) {
       [Markup.button.callback('Название', `esf_title_${taskId}`), Markup.button.callback('Описание', `esf_desc_${taskId}`)],
       [Markup.button.callback('Категория', `esf_cat_${taskId}`), Markup.button.callback('Приоритет', `esf_pri_${taskId}`)],
       [Markup.button.callback('Дата срока', `esf_date_${taskId}`), Markup.button.callback('План', `esf_plan_${taskId}`)],
+      [Markup.button.callback('🔔 Напоминание', `esf_reminder_${taskId}`)],
     ];
     if (task?.status === 'waiting') {
       rows.push([
@@ -440,7 +453,7 @@ function register(bot) {
     const task   = getTaskById(taskId);
     await ctx.answerCbQuery();
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task)) });
+    await safeEdit(ctx, formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
   });
 
   bot.action(/^esf_(title|desc|date)_(\d+)$/, async (ctx) => {
@@ -494,6 +507,35 @@ function register(bot) {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', `edit_saved_${taskId}`)]]),
     });
+  });
+
+  bot.action(/^esf_reminder_(\d+)$/, async (ctx) => {
+    const taskId = Number(ctx.match[1]);
+    const userId = getUser(ctx);
+    const task   = getTaskById(taskId);
+    const state  = pendingTasks.get(userId) ?? {};
+    state.editingSavedTask = { id: taskId, field: 'reminder_at' };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    const current = task.reminder_at;
+    const currentLine = current ? `\nТекущее: \`${current.slice(0, 16)}\`` : '';
+    await safeEdit(ctx, `🔔 *Напоминание*${currentLine}\n\nКогда напомнить? Примеры:\n"завтра в 10:00", "29 марта 14:30", "через 2 часа"`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Убрать напоминание', `esf_reminder_clear_${taskId}`)],
+        [Markup.button.callback('◀️ Назад', `edit_saved_${taskId}`)],
+      ]),
+    });
+  });
+
+  bot.action(/^esf_reminder_clear_(\d+)$/, async (ctx) => {
+    const taskId = Number(ctx.match[1]);
+    const userId = getUser(ctx);
+    updateTask(taskId, { reminder_at: null, reminder_sent: 0 });
+    await ctx.answerCbQuery('🔔 Напоминание убрано');
+    const task   = getTaskById(taskId);
+    const planId = taskPlanContext.get(userId) ?? null;
+    await safeEdit(ctx, formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
   });
 
   bot.action(/^esf_cat_(\d+)$/, async (ctx) => {

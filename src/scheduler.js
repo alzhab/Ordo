@@ -3,6 +3,7 @@ const db = require('./db');
 const { wasNotifiedToday, isQuietMode } = require('./assistantService');
 const { handleMorning, handleReview } = require('./handlers/assistant');
 const { getDueNow } = require('./recurringService');
+const { getDueReminders, updateTask } = require('./taskService');
 
 // Получить всех активных пользователей с их настройками
 function getActiveUsers() {
@@ -63,6 +64,30 @@ function start(bot) {
     } catch (e) {
       console.error('[scheduler] getActiveUsers error:', e.message);
       return;
+    }
+
+    // Напоминания для обычных задач
+    try {
+      const reminders = getDueReminders();
+      for (const task of reminders) {
+        console.log(`[scheduler] reminder task "${task.title}" → user ${task.user_id}`);
+        await bot.telegram.sendMessage(
+          task.user_id,
+          `🔔 *Напоминание:* ${task.title}`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '✅ Сделал', callback_data: `ts_done_${task.id}` },
+                { text: '📋 Открыть', callback_data: `tv_${task.id}` },
+              ]],
+            },
+          }
+        );
+        updateTask(task.id, { reminder_sent: 1 });
+      }
+    } catch (e) {
+      console.error('[scheduler] reminders error:', e.message);
     }
 
     // Повторяющиеся задачи — проверяем один раз для всех

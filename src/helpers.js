@@ -156,4 +156,53 @@ function normalizeWaiting(waiting_reason, waiting_until) {
   return { waiting_reason: reason, waiting_until: until };
 }
 
-module.exports = { getUser, safeEdit, safeDelete, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId };
+// Парсит дату+время напоминания из текста
+// Поддерживает: "2026-03-29 14:00", "29 марта 14:00", "завтра в 9 утра", "через 2 часа"
+function parseReminderDatetime(text) {
+  if (!text) return null;
+  const t = text.trim();
+
+  // Уже ISO datetime: "2026-03-29 14:00" или "2026-03-29T14:00"
+  const isoMatch = t.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  if (isoMatch) return `${isoMatch[1]} ${isoMatch[2]}`;
+
+  // "через N часов/минут"
+  const hoursMatch = t.match(/через (\d+) час/i);
+  if (hoursMatch) {
+    const d = new Date(Date.now() + parseInt(hoursMatch[1]) * 3600000);
+    return `${d.toISOString().slice(0, 10)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+  const minsMatch = t.match(/через (\d+) мин/i);
+  if (minsMatch) {
+    const d = new Date(Date.now() + parseInt(minsMatch[1]) * 60000);
+    return `${d.toISOString().slice(0, 10)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+
+  // Ищем время в тексте: "14:00", "в 9 утра", "в 21:00"
+  let timeStr = null;
+  const colonTime = t.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (colonTime) {
+    timeStr = `${colonTime[1].padStart(2,'0')}:${colonTime[2]}`;
+  } else {
+    const morningMatch = t.match(/в (\d{1,2}) утра/i);
+    const eveningMatch = t.match(/в (\d{1,2}) вечера/i) || t.match(/в (\d{1,2}) ночи/i);
+    if (morningMatch) timeStr = `${morningMatch[1].padStart(2,'0')}:00`;
+    else if (eveningMatch) {
+      const h = parseInt(eveningMatch[1]);
+      timeStr = `${String(h < 12 ? h + 12 : h).padStart(2,'0')}:00`;
+    }
+  }
+
+  const date = parseFlexibleDate(t);
+  if (date && timeStr) return `${date} ${timeStr}`;
+  if (date) return `${date} 09:00`;
+  if (timeStr) {
+    // Только время — сегодня или завтра
+    const today = new Date().toISOString().slice(0, 10);
+    return `${today} ${timeStr}`;
+  }
+
+  return null;
+}
+
+module.exports = { getUser, safeEdit, safeDelete, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime };

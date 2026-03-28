@@ -43,6 +43,8 @@ function createTestDb() {
       notion_page_id  TEXT,
       waiting_reason  TEXT,
       waiting_until   TEXT,
+      reminder_at     TEXT,
+      reminder_sent   INTEGER NOT NULL DEFAULT 0,
       created_at      TEXT DEFAULT (datetime('now')),
       updated_at      TEXT DEFAULT (datetime('now'))
     );

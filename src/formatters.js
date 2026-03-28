@@ -40,6 +40,10 @@ function formatTaskDetail(t) {
     const done = subtasks.filter(s => s.is_done).length;
     lines.push(`*Шаги:* ${done}/${subtasks.length}`);
   }
+  if (t.reminder_at) {
+    const fired = t.reminder_sent ? ' _(отправлено)_' : '';
+    lines.push(`*🔔 Напомнить:* ${t.reminder_at.slice(0, 16)}${fired}`);
+  }
   if (t.notion_page_id) {
     const url = `https://notion.so/${t.notion_page_id.replace(/-/g, '')}`;
     lines.push(`[Открыть в Notion](${url})`);
@@ -53,9 +57,10 @@ function formatPreview(task) {
   lines.push(`*Название:* ${task.title}`);
   if (task.description) lines.push(`*Описание:* ${task.description}`);
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
-  if (task.dueDate)   lines.push(`*📅 Срок:* ${task.dueDate}`);
-  if (task.priority)  lines.push(`*⚡ Приоритет:* ${task.priority}`);
-  if (task.plan)      lines.push(`*📋 План:* ${task.plan}`);
+  if (task.dueDate)     lines.push(`*📅 Срок:* ${task.dueDate}`);
+  if (task.priority)    lines.push(`*⚡ Приоритет:* ${task.priority}`);
+  if (task.plan)        lines.push(`*📋 План:* ${task.plan}`);
+  if (task.reminder_at) lines.push(`*🔔 Напомнить:* ${task.reminder_at.slice(0, 16)}`);
   if (task.status === 'waiting') {
     lines.push(`*Статус:* ⏸ В ожидании`);
     if (task.waiting_reason) lines.push(`*Причина:* ${task.waiting_reason}`);
