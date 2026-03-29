@@ -3,6 +3,7 @@ const { ANTHROPIC_API_KEY } = require('./config');
 const { getTasks } = require('./taskService');
 const { getGoalsWithProgress } = require('./goalService');
 const db = require('./db');
+const { localNow, localToUtc } = require('./helpers');
 
 const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
@@ -51,11 +52,15 @@ function markReacted(userId, type) {
 }
 
 function wasNotifiedToday(userId, type) {
+  const settings = getSettings(userId);
+  const today = localNow(settings.timezone);
+  const startUtc = localToUtc(`${today} 00:00`, settings.timezone);
+  const endUtc   = localToUtc(`${today} 23:59`, settings.timezone);
   const row = db.prepare(`
     SELECT 1 FROM notification_log
-    WHERE user_id = ? AND type = ? AND date(sent_at) = date('now')
+    WHERE user_id = ? AND type = ? AND sent_at >= ? AND sent_at <= ?
     LIMIT 1
-  `).get(userId, type);
+  `).get(userId, type, startUtc, endUtc);
   return !!row;
 }
 
@@ -69,7 +74,8 @@ function isQuietMode(userId) {
 
 async function getMorningPlan(userId, date) {
   const { getTasksByPlannedDate } = require('./taskService');
-  const targetDate = date ?? new Date().toISOString().slice(0, 10);
+  const { timezone } = getSettings(userId);
+  const targetDate = date ?? localNow(timezone);
 
   // Все активные задачи без planned_for — кандидаты для AI
   const allTasks = getTasks(userId, {});
@@ -135,8 +141,13 @@ ${tasksText}
 // ─── Вечерний разбор ─────────────────────────────────────────
 
 function getReviewTasks(userId) {
-  const today = new Date().toISOString().slice(0, 10);
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const { timezone } = getSettings(userId);
+  const today = localNow(timezone);
+  const sevenDaysAgo = (() => {
+    const d = new Date(`${today}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 7);
+    return d.toISOString().slice(0, 10);
+  })();
 
   // Незакрытые задачи из сегодняшнего плана
   const plannedToday = db.prepare(`
@@ -196,7 +207,8 @@ async function getFocusTask(userId) {
   const tasks = getTasks(userId, { status: 'todo' });
   if (!tasks.length) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const { timezone } = getSettings(userId);
+  const today = localNow(timezone);
   const tasksText = tasks.slice(0, 20).map(t => {
     const parts = [`[${t.id}] ${t.title}`];
     if (t.planned_for) parts.push(`запланировано: ${t.planned_for}`);
@@ -227,8 +239,13 @@ ${tasksText}
 // ─── Прогресс ─────────────────────────────────────────────────
 
 function getProgress(userId) {
-  const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const { timezone } = getSettings(userId);
+  const today = localNow(timezone);
+  const weekAgo = (() => {
+    const d = new Date(`${today}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 7);
+    return d.toISOString().slice(0, 10);
+  })();
 
   const doneToday = db.prepare(`
     SELECT COUNT(*) as cnt FROM tasks

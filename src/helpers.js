@@ -1,5 +1,49 @@
 const { ensureUser } = require('./categoryService');
 
+// ─── Timezone helpers ─────────────────────────────────────────
+
+// Текущая дата в локальном часовом поясе пользователя → "YYYY-MM-DD"
+function localNow(timezone) {
+  if (!timezone) return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('sv', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date()).slice(0, 10);
+}
+
+// UTC строка "YYYY-MM-DD HH:MM" → локальное время пользователя "YYYY-MM-DD HH:MM"
+function utcToLocal(utcStr, timezone) {
+  if (!utcStr || !timezone) return utcStr;
+  const [datePart, timePart = '00:00'] = utcStr.split(' ');
+  const d = new Date(`${datePart}T${timePart}:00Z`);
+  return new Intl.DateTimeFormat('sv', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).format(d);
+}
+
+// Локальное время "YYYY-MM-DD HH:MM" → UTC строка "YYYY-MM-DD HH:MM" для хранения в БД
+function localToUtc(localStr, timezone) {
+  if (!localStr || !timezone) return localStr;
+  const [datePart, timePart = '09:00'] = localStr.split(' ');
+  // Probe: treat localStr as UTC, find what local time that gives → compute offset
+  const probe = new Date(`${datePart}T${timePart}:00Z`);
+  const probeLocal = new Intl.DateTimeFormat('sv', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).format(probe);
+  const [ply, plm, pld] = probeLocal.slice(0, 10).split('-').map(Number);
+  const [plh, plmi] = probeLocal.slice(11, 16).split(':').map(Number);
+  const probeLocalMs = Date.UTC(ply, plm - 1, pld, plh, plmi);
+  const offsetMs = probeLocalMs - probe.getTime();
+  const [dy, dmo, dd] = datePart.split('-').map(Number);
+  const [dh, dm] = timePart.split(':').map(Number);
+  const desiredLocalMs = Date.UTC(dy, dmo - 1, dd, dh, dm);
+  return new Date(desiredLocalMs - offsetMs).toISOString().slice(0, 16).replace('T', ' ');
+}
+
 function getUser(ctx) {
   const { id, username } = ctx.from;
   ensureUser(id, username);
@@ -37,14 +81,15 @@ const RUSSIAN_MONTH_MAP = {
 // Ищет любое упоминание даты где угодно в строке, возвращает ISO или null.
 // Обрабатывает: "22 марта", "завтра", "послезавтра", "через неделю",
 // "через N дней/недель", дни недели, ISO-дату.
-function extractDateFromText(text) {
+function extractDateFromText(text, timezone) {
   if (!text) return null;
   const l = text.toLowerCase();
 
   const addDays = (n) => {
-    const d = new Date();
-    d.setDate(d.getDate() + n);
-    return d.toISOString().split('T')[0];
+    const base = localNow(timezone);
+    const d = new Date(`${base}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
   };
 
   // ISO дата
@@ -83,7 +128,9 @@ function extractDateFromText(text) {
   const weekdays = { понедельник: 1, вторник: 2, среду: 3, среда: 3, четверг: 4, пятницу: 5, пятница: 5, субботу: 6, суббота: 6, воскресенье: 0 };
   for (const [name, day] of Object.entries(weekdays)) {
     if (l.includes(name)) {
-      const diff = ((day - new Date().getDay()) + 7) % 7 || 7;
+      const base = localNow(timezone);
+      const baseDay = new Date(`${base}T00:00:00Z`).getUTCDay();
+      const diff = ((day - baseDay) + 7) % 7 || 7;
       return addDays(diff);
     }
   }
@@ -92,15 +139,16 @@ function extractDateFromText(text) {
 }
 
 // Парсинг гибких дат: "через неделю", "завтра", "22 марта", "2026-03-20" → ISO YYYY-MM-DD
-function parseFlexibleDate(text) {
+function parseFlexibleDate(text, timezone) {
   if (!text) return text;
   const t = text.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t; // уже ISO
 
   const addDays = (n) => {
-    const d = new Date();
-    d.setDate(d.getDate() + n);
-    return d.toISOString().split('T')[0];
+    const base = localNow(timezone);
+    const d = new Date(`${base}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
   };
 
   const l = t.toLowerCase();
@@ -120,13 +168,15 @@ function parseFlexibleDate(text) {
   const weekdays = { понедельник: 1, вторник: 2, среда: 3, среду: 3, четверг: 4, пятница: 5, пятницу: 5, суббота: 6, субботу: 6, воскресенье: 0 };
   for (const [name, day] of Object.entries(weekdays)) {
     if (l.includes(name)) {
-      const diff = ((day - new Date().getDay()) + 7) % 7 || 7;
+      const base = localNow(timezone);
+      const baseDay = new Date(`${base}T00:00:00Z`).getUTCDay();
+      const diff = ((day - baseDay) + 7) % 7 || 7;
       return addDays(diff);
     }
   }
 
   // "22 марта" / "22 марта 2026"
-  const fromRussian = extractDateFromText(t);
+  const fromRussian = extractDateFromText(t, timezone);
   if (fromRussian) return fromRussian;
 
   return null;
@@ -156,26 +206,27 @@ function normalizeWaiting(waiting_reason, waiting_until) {
   return { waiting_reason: reason, waiting_until: until };
 }
 
-// Парсит дату+время напоминания из текста
+// Парсит дату+время напоминания из текста, возвращает UTC строку для хранения в БД.
+// timezone — IANA-зона пользователя (напр. "Asia/Almaty"). Без timezone сохраняет как есть.
 // Поддерживает: "2026-03-29 14:00", "29 марта 14:00", "завтра в 9 утра", "через 2 часа"
-function parseReminderDatetime(text) {
+function parseReminderDatetime(text, timezone) {
   if (!text) return null;
   const t = text.trim();
 
-  // Уже ISO datetime: "2026-03-29 14:00" или "2026-03-29T14:00"
+  // Уже ISO datetime: "2026-03-29 14:00" или "2026-03-29T14:00" — считаем локальным, конвертируем
   const isoMatch = t.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
-  if (isoMatch) return `${isoMatch[1]} ${isoMatch[2]}`;
+  if (isoMatch) return localToUtc(`${isoMatch[1]} ${isoMatch[2]}`, timezone);
 
-  // "через N часов/минут"
+  // "через N часов/минут" — относительное, сразу UTC
   const hoursMatch = t.match(/через (\d+) час/i);
   if (hoursMatch) {
     const d = new Date(Date.now() + parseInt(hoursMatch[1]) * 3600000);
-    return `${d.toISOString().slice(0, 10)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    return `${d.toISOString().slice(0, 10)} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
   }
   const minsMatch = t.match(/через (\d+) мин/i);
   if (minsMatch) {
     const d = new Date(Date.now() + parseInt(minsMatch[1]) * 60000);
-    return `${d.toISOString().slice(0, 10)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    return `${d.toISOString().slice(0, 10)} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
   }
 
   // Ищем время в тексте: "14:00", "в 9 утра", "в 21:00"
@@ -193,16 +244,19 @@ function parseReminderDatetime(text) {
     }
   }
 
-  const date = parseFlexibleDate(t);
-  if (date && timeStr) return `${date} ${timeStr}`;
-  if (date) return `${date} 09:00`;
+  const date = parseFlexibleDate(t, timezone);
+  if (date && timeStr) return localToUtc(`${date} ${timeStr}`, timezone);
+  if (date) return localToUtc(`${date} 09:00`, timezone);
   if (timeStr) {
-    // Только время — сегодня или завтра
-    const today = new Date().toISOString().slice(0, 10);
-    return `${today} ${timeStr}`;
+    const today = localNow(timezone);
+    return localToUtc(`${today} ${timeStr}`, timezone);
   }
 
   return null;
 }
 
-module.exports = { getUser, safeEdit, safeDelete, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime };
+module.exports = {
+  getUser, safeEdit, safeDelete,
+  localNow, utcToLocal, localToUtc,
+  parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime,
+};

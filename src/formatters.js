@@ -1,4 +1,5 @@
 const { getSubtasks } = require('./subtaskService');
+const { utcToLocal } = require('./helpers');
 
 const STATUS_ICON     = { not_started: '⬜', in_progress: '🔄', done: '✅', waiting: '⏸' };
 const PRIORITY_ICON   = { high: '🔴', medium: '🟡', low: '🟢' };
@@ -21,7 +22,7 @@ function formatTaskText(t, index) {
   return `${index}. ${icon}${priority} *${t.title}*${cat}${due}`;
 }
 
-function formatTaskDetail(t) {
+function formatTaskDetail(t, timezone) {
   const statusLabel   = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании' };
   const priorityLabel = { high: '🔴 Высокий', medium: '🟡 Средний', low: '🟢 Низкий' };
   const lines = [`📌 *${t.title}*\n`];
@@ -41,8 +42,9 @@ function formatTaskDetail(t) {
     lines.push(`*Шаги:* ${done}/${subtasks.length}`);
   }
   if (t.reminder_at) {
+    const display = timezone ? utcToLocal(t.reminder_at, timezone) : t.reminder_at;
     const fired = t.reminder_sent ? ' _(отправлено)_' : '';
-    lines.push(`*🔔 Напомнить:* ${t.reminder_at.slice(0, 16)}${fired}`);
+    lines.push(`*🔔 Напомнить:* ${display.slice(0, 16)}${fired}`);
   }
   if (t.notion_page_id) {
     const url = `https://notion.so/${t.notion_page_id.replace(/-/g, '')}`;

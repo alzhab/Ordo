@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime } = require('../helpers');
+const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime, localToUtc } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter, taskPlanContext, acquireProcessing, releaseProcessing } = require('../state');
 const { formatTaskDetail, formatPreview } = require('../formatters');
 const {
@@ -20,9 +20,10 @@ const {
   pushTask, updateTaskFields, updateTaskStatus,
 } = require('../integrations/notion');
 const { logSyncError } = require('../syncErrorService');
-const { getNotionEnabled } = require('../assistantService');
+const { getNotionEnabled, getSettings } = require('../assistantService');
 
 function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
+function getUserTz(userId) { return getSettings(userId).timezone || null; }
 
 const STATUS_LABEL = { not_started: '⬜ Возвращено', in_progress: '🔄 В работу', done: '✅ Готово!' };
 
@@ -43,7 +44,7 @@ async function finishWaiting(ctx, userId, state, waitingUntil) {
     updateTaskFields(updated.notion_page_id, updated).catch(() => {});
   }
   const planId = taskPlanContext.get(userId) ?? null;
-  const detail = formatTaskDetail(updated);
+  const detail = formatTaskDetail(updated, getUserTz(userId));
   const opts   = { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) };
   // safeEdit работает только в callback-контексте; при текстовом вводе используем reply
   if (ctx.callbackQuery) {
@@ -91,7 +92,7 @@ function register(bot) {
     await ctx.answerCbQuery();
     if (!task) return ctx.reply('Задача не найдена.');
     await safeDelete(ctx);
-    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, null, needsNotionLink(task, userId)) });
+    await ctx.reply(formatTaskDetail(task, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(task, null, needsNotionLink(task, userId)) });
   });
 
   // Просмотр задачи из контекста цели
@@ -104,7 +105,7 @@ function register(bot) {
     if (!task) return ctx.reply('Задача не найдена.');
     taskPlanContext.set(userId, goalId);
     await safeDelete(ctx);
-    await ctx.reply(formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, goalId, needsNotionLink(task, userId)) });
+    await ctx.reply(formatTaskDetail(task, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(task, goalId, needsNotionLink(task, userId)) });
   });
 
   // Смена статуса
@@ -128,7 +129,7 @@ function register(bot) {
       }
     }
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
+    await safeEdit(ctx, formatTaskDetail(updated, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   // Перевод задачи в ожидание — шаг 1: причина
@@ -248,6 +249,10 @@ function register(bot) {
         const norm = normalizeWaiting(parsed.waiting_reason, parsed.waiting_until);
         parsed.waiting_reason = norm.waiting_reason;
         parsed.waiting_until  = norm.waiting_until;
+      }
+      // Конвертируем reminder_at из локального времени в UTC перед сохранением
+      if (parsed.reminder_at) {
+        parsed.reminder_at = localToUtc(parsed.reminder_at, getUserTz(userId));
       }
       const saved = createTask(userId, parsed);
 
@@ -441,7 +446,7 @@ function register(bot) {
     const task   = getTaskById(taskId);
     await ctx.answerCbQuery();
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
+    await safeEdit(ctx, formatTaskDetail(task, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
   });
 
   bot.action(/^esf_(title|desc|date)_(\d+)$/, async (ctx) => {
@@ -523,7 +528,7 @@ function register(bot) {
     await ctx.answerCbQuery('🔔 Напоминание убрано');
     const task   = getTaskById(taskId);
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(task), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
+    await safeEdit(ctx, formatTaskDetail(task, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(task, planId, needsNotionLink(task, userId)) });
   });
 
   bot.action(/^esf_cat_(\d+)$/, async (ctx) => {
@@ -551,7 +556,7 @@ function register(bot) {
     }
     await ctx.answerCbQuery('✅ Категория обновлена');
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
+    await safeEdit(ctx, formatTaskDetail(updated, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   bot.action(/^esf_pri_(\d+)$/, async (ctx) => {
@@ -577,7 +582,7 @@ function register(bot) {
     }
     await ctx.answerCbQuery('✅ Приоритет обновлён');
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
+    await safeEdit(ctx, formatTaskDetail(updated, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   bot.action(/^esf_plan_(\d+)$/, async (ctx) => {
@@ -601,7 +606,7 @@ function register(bot) {
     }
     await ctx.answerCbQuery('✅ Цель обновлена');
     const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
+    await safeEdit(ctx, formatTaskDetail(updated, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
 
   // Уточнение голосовой команды — выбор задачи
@@ -871,6 +876,9 @@ function register(bot) {
         const norm = normalizeWaiting(parsed.waiting_reason, parsed.waiting_until);
         parsed.waiting_reason = norm.waiting_reason;
         parsed.waiting_until  = norm.waiting_until;
+      }
+      if (parsed.reminder_at) {
+        parsed.reminder_at = localToUtc(parsed.reminder_at, getUserTz(userId));
       }
       const saved = createTask(userId, parsed);
       if (parsed.subtasks?.length) createSubtasks(saved.id, parsed.subtasks);

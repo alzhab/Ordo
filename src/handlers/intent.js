@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime } = require('../helpers');
+const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, localToUtc, utcToLocal } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../state');
 const { getSettings, updateSettings } = require('../assistantService');
 const { create: createRecurring, formatSchedule } = require('../recurringService');
@@ -108,9 +108,12 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
       );
     }
     case 'set_reminder': {
-      const updated = updateTask(task.id, { reminder_at: actionObj.reminder_at, reminder_sent: 0 });
+      const tz = getSettings(userId).timezone;
+      const reminderUtc = actionObj.reminder_at ? localToUtc(actionObj.reminder_at, tz) : null;
+      const updated = updateTask(task.id, { reminder_at: reminderUtc, reminder_sent: 0 });
+      const displayReminder = reminderUtc ? utcToLocal(reminderUtc, tz) : '—';
       return ctx.reply(
-        `🔔 *${task.title}*\nНапомню: ${actionObj.reminder_at?.slice(0, 16) ?? '—'}`,
+        `🔔 *${task.title}*\nНапомню: ${displayReminder.slice(0, 16)}`,
         { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Открыть', `tv_${task.id}`)]]) }
       );
     }
@@ -397,7 +400,7 @@ async function handleText(ctx, text) {
     const pageId = extractNotionPageId(text);
     if (!pageId) return ctx.reply('❌ Не удалось распознать Notion page ID. Отправь URL страницы или ID в формате UUID.');
     const updated = updateTask(taskId, { notion_page_id: pageId });
-    return ctx.reply(formatTaskDetail(updated), {
+    return ctx.reply(formatTaskDetail(updated, getSettings(userId).timezone), {
       parse_mode: 'Markdown',
       ...taskDetailButtons(updated, null, false),
     });
@@ -418,9 +421,10 @@ async function handleText(ctx, text) {
     const { id, field } = state.editingSavedTask;
     delete state.editingSavedTask;
     pendingTasks.set(userId, state);
+    const tz = getSettings(userId).timezone;
     let value;
-    if (field === 'reminder_at') value = parseReminderDatetime(text);
-    else if (field === 'planned_for' || field === 'waiting_until') value = parseFlexibleDate(text);
+    if (field === 'reminder_at') value = parseReminderDatetime(text, tz);
+    else if (field === 'planned_for' || field === 'waiting_until') value = parseFlexibleDate(text, tz);
     else value = text;
     const fields = field === 'reminder_at'
       ? { reminder_at: value, reminder_sent: 0 }
@@ -432,7 +436,7 @@ async function handleText(ctx, text) {
         ctx.reply('⚠️ Задача обновлена, но синхронизация с Notion не удалась.').catch(() => {});
       });
     }
-    return ctx.reply(formatTaskDetail(updated), { parse_mode: 'Markdown', ...taskDetailButtons(updated, null, notionEnabled(userId) && !updated.notion_page_id) });
+    return ctx.reply(formatTaskDetail(updated, tz), { parse_mode: 'Markdown', ...taskDetailButtons(updated, null, notionEnabled(userId) && !updated.notion_page_id) });
   }
 
   // Редактирование несохранённой задачи
