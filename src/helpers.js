@@ -2,13 +2,28 @@ const { ensureUser } = require('./categoryService');
 
 // ─── Timezone helpers ─────────────────────────────────────────
 
+// Разбирает дату/время через formatToParts — безопасно независимо от локали и разделителей
+function _intlParts(date, timezone) {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date);
+  const p = {};
+  for (const { type, value } of parts) p[type] = value;
+  // hour12:false может давать "24" для полуночи — нормализуем
+  const h = parseInt(p.hour) === 24 ? 0 : parseInt(p.hour);
+  return {
+    year: parseInt(p.year), month: parseInt(p.month), day: parseInt(p.day),
+    hour: h, minute: parseInt(p.minute),
+  };
+}
+
 // Текущая дата в локальном часовом поясе пользователя → "YYYY-MM-DD"
 function localNow(timezone) {
   if (!timezone) return new Date().toISOString().slice(0, 10);
-  return new Intl.DateTimeFormat('sv', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date()).slice(0, 10);
+  const { year, month, day } = _intlParts(new Date(), timezone);
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
 }
 
 // UTC строка "YYYY-MM-DD HH:MM" → локальное время пользователя "YYYY-MM-DD HH:MM"
@@ -16,26 +31,17 @@ function utcToLocal(utcStr, timezone) {
   if (!utcStr || !timezone) return utcStr;
   const [datePart, timePart = '00:00'] = utcStr.split(' ');
   const d = new Date(`${datePart}T${timePart}:00Z`);
-  return new Intl.DateTimeFormat('sv', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  }).format(d);
+  const { year, month, day, hour, minute } = _intlParts(d, timezone);
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')} ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}`;
 }
 
 // Локальное время "YYYY-MM-DD HH:MM" → UTC строка "YYYY-MM-DD HH:MM" для хранения в БД
 function localToUtc(localStr, timezone) {
   if (!localStr || !timezone) return localStr;
   const [datePart, timePart = '09:00'] = localStr.split(' ');
-  // Probe: treat localStr as UTC, find what local time that gives → compute offset
+  // Probe: treat localStr as UTC to compute timezone offset at that date
   const probe = new Date(`${datePart}T${timePart}:00Z`);
-  const probeLocal = new Intl.DateTimeFormat('sv', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  }).format(probe);
-  const [ply, plm, pld] = probeLocal.slice(0, 10).split('-').map(Number);
-  const [plh, plmi] = probeLocal.slice(11, 16).split(':').map(Number);
+  const { year: ply, month: plm, day: pld, hour: plh, minute: plmi } = _intlParts(probe, timezone);
   const probeLocalMs = Date.UTC(ply, plm - 1, pld, plh, plmi);
   const offsetMs = probeLocalMs - probe.getTime();
   const [dy, dmo, dd] = datePart.split('-').map(Number);
