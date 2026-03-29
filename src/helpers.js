@@ -217,10 +217,16 @@ function normalizeWaiting(waiting_reason, waiting_until) {
 // Иначе считает значение локальным временем и конвертирует через localToUtc.
 function parserReminderToUtc(reminderAt, timezone) {
   if (!reminderAt) return null;
-  if (/^через\s+\d+\s+(минут|минуту|минуты|час|часа|часов)/i.test(reminderAt)) {
-    return parseReminderDatetime(reminderAt, timezone);
+  const isRelative = /^через\s+\d+\s+(минут|минуту|минуты|час|часа|часов)/i.test(reminderAt);
+  console.log('[parserReminderToUtc] input:', JSON.stringify(reminderAt), '| timezone:', timezone, '| isRelative:', isRelative, '| serverUTC:', new Date().toISOString());
+  let result;
+  if (isRelative) {
+    result = parseReminderDatetime(reminderAt, timezone);
+  } else {
+    result = localToUtc(reminderAt, timezone);
   }
-  return localToUtc(reminderAt, timezone);
+  console.log('[parserReminderToUtc] result (UTC):', result);
+  return result;
 }
 
 // Парсит дату+время напоминания из текста, возвращает UTC строку для хранения в БД.

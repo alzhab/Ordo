@@ -42,7 +42,9 @@ function formatTaskDetail(t, timezone) {
     lines.push(`*Шаги:* ${done}/${subtasks.length}`);
   }
   if (t.reminder_at) {
+    console.log('[formatTaskDetail] stored reminder_at (UTC):', t.reminder_at, '| timezone:', timezone);
     const display = timezone ? utcToLocal(t.reminder_at, timezone) : t.reminder_at;
+    console.log('[formatTaskDetail] display (local):', display);
     const fired = t.reminder_sent ? ' _(отправлено)_' : '';
     lines.push(`*🔔 Напомнить:* ${display.slice(0, 16)}${fired}`);
   }
@@ -55,6 +57,7 @@ function formatTaskDetail(t, timezone) {
 }
 
 function formatPreview(task) {
+  if (task.reminder_at) console.log('[formatPreview] reminder_at from Claude:', JSON.stringify(task.reminder_at));
   const lines = ['📝 *Создать задачу?*\n'];
   lines.push(`*Название:* ${task.title}`);
   if (task.description) lines.push(`*Описание:* ${task.description}`);
