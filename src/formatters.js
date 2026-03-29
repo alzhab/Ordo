@@ -1,5 +1,5 @@
 const { getSubtasks } = require('./subtaskService');
-const { utcToLocal } = require('./helpers');
+const { utcToLocal, parserReminderToUtc } = require('./helpers');
 
 const STATUS_ICON     = { not_started: '⬜', in_progress: '🔄', done: '✅', waiting: '⏸' };
 const PRIORITY_ICON   = { high: '🔴', medium: '🟡', low: '🟢' };
@@ -56,7 +56,7 @@ function formatTaskDetail(t, timezone) {
   return lines.join('\n');
 }
 
-function formatPreview(task) {
+function formatPreview(task, timezone) {
   if (task.reminder_at) console.log('[formatPreview] reminder_at from Claude:', JSON.stringify(task.reminder_at));
   const lines = ['📝 *Создать задачу?*\n'];
   lines.push(`*Название:* ${task.title}`);
@@ -65,7 +65,14 @@ function formatPreview(task) {
   if (task.plannedFor)  lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
   if (task.priority)    lines.push(`*⚡ Приоритет:* ${task.priority}`);
   if (task.goal)        lines.push(`*📎 Цель:* ${task.goal}`);
-  if (task.reminder_at) lines.push(`*🔔 Напомнить:* ${task.reminder_at.slice(0, 16)}`);
+  if (task.reminder_at) {
+    let reminderDisplay = task.reminder_at;
+    if (timezone && /^через\s+\d+\s+(минут|минуту|минуты|час|часа|часов)/i.test(task.reminder_at)) {
+      const utc = parserReminderToUtc(task.reminder_at, timezone);
+      if (utc) reminderDisplay = utcToLocal(utc, timezone) || utc;
+    }
+    lines.push(`*🔔 Напомнить:* ${reminderDisplay.slice(0, 16)}`);
+  }
   if (task.status === 'waiting') {
     lines.push(`*Статус:* ⏸ В ожидании`);
     if (task.waiting_reason) lines.push(`*Причина:* ${task.waiting_reason}`);

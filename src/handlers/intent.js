@@ -442,21 +442,22 @@ async function handleText(ctx, text) {
   // Редактирование несохранённой задачи
   if (state?.editingField) {
     const { task, editingField } = state;
+    const previewTz = getSettings(userId).timezone;
     if (editingField === 'title')       task.title       = text;
-    if (editingField === 'plannedFor')  task.plannedFor  = parseFlexibleDate(text);
+    if (editingField === 'plannedFor')  task.plannedFor  = parseFlexibleDate(text, previewTz);
     if (editingField === 'description') task.description = text;
     state.editingField = null;
-    await ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+    await ctx.reply(formatPreview(task, previewTz), { parse_mode: 'Markdown', ...confirmButtons });
     return;
   }
 
   // Парсинг нового намерения
   const statusMsg = await ctx.reply('⏳ Анализирую...');
   let parsed;
+  const timezone = getSettings(userId).timezone;
   try {
     const categories = getCategoryNames(userId);
     const goalNames  = getGoalsWithProgress(userId).map(g => g.title);
-    const timezone   = getSettings(userId).timezone;
     parsed = await parseIntent(text, categories, goalNames, timezone);
   } catch (e) {
     console.error(e);
@@ -496,7 +497,7 @@ async function handleText(ctx, text) {
     if (batchTasks.length === 1) {
       const task = batchTasks[0];
       pendingTasks.set(userId, { task, editingField: null });
-      return ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+      return ctx.reply(formatPreview(task, timezone), { parse_mode: 'Markdown', ...confirmButtons });
     }
     const state = { batchTasks, batchIndex: 0, batchCreated: [] };
     pendingTasks.set(userId, state);
@@ -506,7 +507,7 @@ async function handleText(ctx, text) {
   const task = parsed;
   if (!task.category) task.category = 'Общее';
   pendingTasks.set(userId, { task, editingField: null });
-  ctx.reply(formatPreview(task), { parse_mode: 'Markdown', ...confirmButtons });
+  ctx.reply(formatPreview(task, timezone), { parse_mode: 'Markdown', ...confirmButtons });
 }
 
 function handleCreateRecurring(ctx, userId, parsed) {

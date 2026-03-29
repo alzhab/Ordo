@@ -313,7 +313,7 @@ function register(bot) {
     if (!state) return ctx.answerCbQuery('Сессия устарела, отправь задачу заново.');
     state.task.category = category;
     state.editingField  = null;
-    await safeEdit(ctx, formatPreview(state.task), { parse_mode: 'Markdown', ...confirmButtons });
+    await safeEdit(ctx, formatPreview(state.task, getUserTz(userId)), { parse_mode: 'Markdown', ...confirmButtons });
     ctx.answerCbQuery();
   });
 
@@ -324,7 +324,7 @@ function register(bot) {
     if (!state) return ctx.answerCbQuery('Сессия устарела, отправь задачу заново.');
     state.task.priority = ctx.match[1];
     state.editingField  = null;
-    await safeEdit(ctx, formatPreview(state.task), { parse_mode: 'Markdown', ...confirmButtons });
+    await safeEdit(ctx, formatPreview(state.task, getUserTz(userId)), { parse_mode: 'Markdown', ...confirmButtons });
     ctx.answerCbQuery();
   });
 
@@ -351,7 +351,7 @@ function register(bot) {
     if (!state) return ctx.answerCbQuery('Сессия устарела.');
     state.editingField = null;
     await ctx.answerCbQuery();
-    await safeEdit(ctx, formatPreview(state.task), { parse_mode: 'Markdown', ...confirmButtons });
+    await safeEdit(ctx, formatPreview(state.task, getUserTz(userId)), { parse_mode: 'Markdown', ...confirmButtons });
   });
 
   bot.action('edit_field_category', async (ctx) => {
@@ -396,7 +396,7 @@ function register(bot) {
     const goalId = Number(ctx.match[1]);
     state.task.plan = goalId === 0 ? null : (getGoalById(goalId)?.title ?? null);
     state.editingField = null;
-    await safeEdit(ctx, formatPreview(state.task), { parse_mode: 'Markdown', ...confirmButtons });
+    await safeEdit(ctx, formatPreview(state.task, getUserTz(userId)), { parse_mode: 'Markdown', ...confirmButtons });
     ctx.answerCbQuery();
   });
 
