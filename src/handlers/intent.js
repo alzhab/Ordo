@@ -456,7 +456,8 @@ async function handleText(ctx, text) {
   try {
     const categories = getCategoryNames(userId);
     const goalNames  = getGoalsWithProgress(userId).map(g => g.title);
-    parsed = await parseIntent(text, categories, goalNames);
+    const timezone   = getSettings(userId).timezone;
+    parsed = await parseIntent(text, categories, goalNames, timezone);
   } catch (e) {
     console.error(e);
     await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
