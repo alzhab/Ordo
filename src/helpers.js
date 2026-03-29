@@ -206,6 +206,17 @@ function normalizeWaiting(waiting_reason, waiting_until) {
   return { waiting_reason: reason, waiting_until: until };
 }
 
+// Конвертирует reminder_at из Claude-парсера в UTC строку для БД.
+// Если значение "через N минут/часов" — вычисляет серверное время (точно).
+// Иначе считает значение локальным временем и конвертирует через localToUtc.
+function parserReminderToUtc(reminderAt, timezone) {
+  if (!reminderAt) return null;
+  if (/^через\s+\d+\s+(минут|минуту|минуты|час|часа|часов)/i.test(reminderAt)) {
+    return parseReminderDatetime(reminderAt, timezone);
+  }
+  return localToUtc(reminderAt, timezone);
+}
+
 // Парсит дату+время напоминания из текста, возвращает UTC строку для хранения в БД.
 // timezone — IANA-зона пользователя (напр. "Asia/Almaty"). Без timezone сохраняет как есть.
 // Поддерживает: "2026-03-29 14:00", "29 марта 14:00", "завтра в 9 утра", "через 2 часа"
@@ -257,6 +268,6 @@ function parseReminderDatetime(text, timezone) {
 
 module.exports = {
   getUser, safeEdit, safeDelete,
-  localNow, utcToLocal, localToUtc,
+  localNow, utcToLocal, localToUtc, parserReminderToUtc,
   parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime,
 };

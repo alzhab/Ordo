@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, localToUtc, utcToLocal } = require('../helpers');
+const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../state');
 const { getSettings, updateSettings } = require('../assistantService');
 const { create: createRecurring, formatSchedule } = require('../recurringService');
@@ -109,7 +109,7 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
     }
     case 'set_reminder': {
       const tz = getSettings(userId).timezone;
-      const reminderUtc = actionObj.reminder_at ? localToUtc(actionObj.reminder_at, tz) : null;
+      const reminderUtc = actionObj.reminder_at ? parserReminderToUtc(actionObj.reminder_at, tz) : null;
       const updated = updateTask(task.id, { reminder_at: reminderUtc, reminder_sent: 0 });
       const displayReminder = reminderUtc ? utcToLocal(reminderUtc, tz) : '—';
       return ctx.reply(

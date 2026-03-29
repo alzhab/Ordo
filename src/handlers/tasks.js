@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime, localToUtc } = require('../helpers');
+const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc } = require('../helpers');
 const { pendingTasks, taskFilters, getFilter, taskPlanContext, acquireProcessing, releaseProcessing } = require('../state');
 const { formatTaskDetail, formatPreview } = require('../formatters');
 const {
@@ -252,7 +252,7 @@ function register(bot) {
       }
       // Конвертируем reminder_at из локального времени в UTC перед сохранением
       if (parsed.reminder_at) {
-        parsed.reminder_at = localToUtc(parsed.reminder_at, getUserTz(userId));
+        parsed.reminder_at = parserReminderToUtc(parsed.reminder_at, getUserTz(userId));
       }
       const saved = createTask(userId, parsed);
 
@@ -878,7 +878,7 @@ function register(bot) {
         parsed.waiting_until  = norm.waiting_until;
       }
       if (parsed.reminder_at) {
-        parsed.reminder_at = localToUtc(parsed.reminder_at, getUserTz(userId));
+        parsed.reminder_at = parserReminderToUtc(parsed.reminder_at, getUserTz(userId));
       }
       const saved = createTask(userId, parsed);
       if (parsed.subtasks?.length) createSubtasks(saved.id, parsed.subtasks);
