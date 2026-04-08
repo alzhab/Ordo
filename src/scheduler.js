@@ -70,7 +70,9 @@ function start(bot) {
     // Напоминания для обычных задач
     try {
       const reminders = getDueReminders();
+      console.log(`[scheduler] reminders check: ${reminders.length} due`);
       for (const task of reminders) {
+        console.log(`[scheduler] sending reminder "${task.title}" → user ${task.user_id}`);
         await bot.telegram.sendMessage(
           task.user_id,
           `🔔 *Напоминание:* ${task.title}`,
