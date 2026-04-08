@@ -18,6 +18,8 @@ function createTask(userId, parsed) {
     goalId = goal?.id ?? null;
   }
 
+	console.log(JSON.stringify(parsed, null, 2))
+
   const result = db.prepare(`
     INSERT INTO tasks (user_id, title, description, status, priority, category_id, goal_id, planned_for, waiting_reason, waiting_until, reminder_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
