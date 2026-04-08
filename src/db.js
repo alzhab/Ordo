@@ -8,10 +8,16 @@ const dbDir  = process.env.DATA_DIR || path.join(__dirname, '..');
 fs.mkdirSync(dbDir, { recursive: true });
 const dbPath = path.join(dbDir, dbFile);
 console.log(`[db] opening ${dbPath}`);
-const db = new Database(dbPath);
-
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+let db;
+try {
+  db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  console.log('[db] opened successfully');
+} catch (e) {
+  console.error('[db] FATAL error opening database:', e.message, e.stack);
+  process.exit(1);
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
