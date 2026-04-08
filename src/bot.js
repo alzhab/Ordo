@@ -73,9 +73,12 @@ require('./handlers/intent').register(bot);   console.log('[boot] intent ok');
 
 // ─── Запуск ───────────────────────────────────────────────
 
+console.log('[boot] requiring scheduler...');
 const scheduler = require('./scheduler');
+console.log('[boot] scheduler ok');
 let schedulerTask;
 
+console.log('[boot] launching bot...');
 bot.launch().then(() => {
   console.log('Бот запущен!');
   schedulerTask = scheduler.start(bot);
