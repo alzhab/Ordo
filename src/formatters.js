@@ -57,7 +57,8 @@ function formatTaskDetail(t, timezone) {
 }
 
 function formatPreview(task, timezone) {
-  if (task.reminder_at) console.log('[formatPreview] reminder_at from Claude:', JSON.stringify(task.reminder_at));
+	if (task.reminder_at) console.log('[formatPreview] reminder_at from Claude:', JSON.stringify(task.reminder_at));
+	if (task.reminder_at) console.log('[formatPreview] timezone', timezone);
   const lines = ['📝 *Создать задачу?*\n'];
   lines.push(`*Название:* ${task.title}`);
   if (task.description) lines.push(`*Описание:* ${task.description}`);
