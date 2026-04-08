@@ -78,25 +78,21 @@ const scheduler = require('./scheduler');
 console.log('[boot] scheduler ok');
 let schedulerTask;
 
-console.log('[boot] launching bot...');
-bot.launch()
-  .then(() => {
-    console.log('[boot] bot.launch() resolved — starting scheduler');
-    schedulerTask = scheduler.start(bot);
-    console.log('Бот запущен!');
-    bot.telegram.setMyCommands([
-      { command: 'add',      description: 'Добавить задачу' },
-      { command: 'tasks',    description: 'Список задач' },
-      { command: 'goals',    description: 'Цели' },
-      { command: 'plan',     description: 'План на день' },
-      { command: 'review',   description: 'Вечерний разбор' },
-      { command: 'progress',  description: 'Прогресс' },
-      { command: 'reminders', description: 'Повторяющиеся напоминания' },
-      { command: 'settings',  description: 'Настройки и интеграции' },
-      { command: 'help',     description: 'Помощь' },
-    ]);
-  })
-  .catch(err => console.error('[fatal] bot.launch() rejected:', err.message, err.stack));
+// bot.launch() in long-polling mode never resolves — start scheduler right away
+bot.launch().catch(err => console.error('[fatal] bot.launch() error:', err.message));
+schedulerTask = scheduler.start(bot);
+console.log('Бот запущен!');
+bot.telegram.setMyCommands([
+  { command: 'add',      description: 'Добавить задачу' },
+  { command: 'tasks',    description: 'Список задач' },
+  { command: 'goals',    description: 'Цели' },
+  { command: 'plan',     description: 'План на день' },
+  { command: 'review',   description: 'Вечерний разбор' },
+  { command: 'progress',  description: 'Прогресс' },
+  { command: 'reminders', description: 'Повторяющиеся напоминания' },
+  { command: 'settings',  description: 'Настройки и интеграции' },
+  { command: 'help',     description: 'Помощь' },
+]).catch(() => {});
 
 process.once('SIGINT',  () => { console.log('[signal] SIGINT');  scheduler.stop(schedulerTask); bot.stop('SIGINT'); });
 process.once('SIGTERM', () => { console.log('[signal] SIGTERM'); scheduler.stop(schedulerTask); bot.stop('SIGTERM'); });
