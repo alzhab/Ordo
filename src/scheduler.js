@@ -69,6 +69,7 @@ function start(bot) {
     // Напоминания для обычных задач
     try {
       const reminders = getDueReminders();
+			console.log('[reminders]:', JSON.stringify(reminders, null, 2));
       for (const task of reminders) {
         console.log(`[scheduler] reminder task "${task.title}" → user ${task.user_id}`);
         await bot.telegram.sendMessage(
