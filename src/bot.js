@@ -1,3 +1,13 @@
+// Catch ALL errors as early as possible — before any require() calls
+process.on('uncaughtException', (err) => console.error('[fatal] uncaughtException:', err.message, err.stack));
+process.on('unhandledRejection', (err) => console.error('[fatal] unhandledRejection:', err));
+// Redirect stderr to stdout so Railway log viewer shows everything
+const origStderr = process.stderr.write.bind(process.stderr);
+process.stderr.write = (chunk, ...args) => {
+  process.stdout.write(chunk, ...args);
+  return origStderr(chunk, ...args);
+};
+
 const { Telegraf, Markup } = require('telegraf');
 const { TELEGRAM_BOT_TOKEN } = require('./config');
 const { getUser } = require('./helpers');
@@ -53,20 +63,18 @@ bot.catch((err, ctx) => {
 
 // ─── Регистрация обработчиков ─────────────────────────────
 
-require('./handlers/tasks').register(bot);
-require('./handlers/goals').register(bot);
-require('./handlers/subtasks').register(bot);
-require('./handlers/settings').register(bot);
-require('./handlers/assistant').register(bot);
-require('./handlers/intent').register(bot);
+console.log('[boot] loading handlers...');
+require('./handlers/tasks').register(bot);    console.log('[boot] tasks ok');
+require('./handlers/goals').register(bot);    console.log('[boot] goals ok');
+require('./handlers/subtasks').register(bot); console.log('[boot] subtasks ok');
+require('./handlers/settings').register(bot); console.log('[boot] settings ok');
+require('./handlers/assistant').register(bot);console.log('[boot] assistant ok');
+require('./handlers/intent').register(bot);   console.log('[boot] intent ok');
 
 // ─── Запуск ───────────────────────────────────────────────
 
 const scheduler = require('./scheduler');
 let schedulerTask;
-
-process.on('uncaughtException', (err) => console.error('[fatal] uncaughtException:', err));
-process.on('unhandledRejection', (err) => console.error('[fatal] unhandledRejection:', err));
 
 bot.launch().then(() => {
   console.log('Бот запущен!');
