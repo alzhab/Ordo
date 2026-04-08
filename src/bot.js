@@ -63,19 +63,16 @@ bot.catch((err, ctx) => {
 
 // ─── Регистрация обработчиков ─────────────────────────────
 
-console.log('[boot] loading handlers...');
-require('./handlers/tasks').register(bot);    console.log('[boot] tasks ok');
-require('./handlers/goals').register(bot);    console.log('[boot] goals ok');
-require('./handlers/subtasks').register(bot); console.log('[boot] subtasks ok');
-require('./handlers/settings').register(bot); console.log('[boot] settings ok');
-require('./handlers/assistant').register(bot);console.log('[boot] assistant ok');
-require('./handlers/intent').register(bot);   console.log('[boot] intent ok');
+require('./handlers/tasks').register(bot);
+require('./handlers/goals').register(bot);
+require('./handlers/subtasks').register(bot);
+require('./handlers/settings').register(bot);
+require('./handlers/assistant').register(bot);
+require('./handlers/intent').register(bot);
 
 // ─── Запуск ───────────────────────────────────────────────
 
-console.log('[boot] requiring scheduler...');
 const scheduler = require('./scheduler');
-console.log('[boot] scheduler ok');
 let schedulerTask;
 
 // bot.launch() in long-polling mode never resolves — start scheduler right away
@@ -94,5 +91,5 @@ bot.telegram.setMyCommands([
   { command: 'help',     description: 'Помощь' },
 ]).catch(() => {});
 
-process.once('SIGINT',  () => { console.log('[signal] SIGINT');  scheduler.stop(schedulerTask); bot.stop('SIGINT'); });
-process.once('SIGTERM', () => { console.log('[signal] SIGTERM'); scheduler.stop(schedulerTask); bot.stop('SIGTERM'); });
+process.once('SIGINT',  () => { scheduler.stop(schedulerTask); bot.stop('SIGINT'); });
+process.once('SIGTERM', () => { scheduler.stop(schedulerTask); bot.stop('SIGTERM'); });

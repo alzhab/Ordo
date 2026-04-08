@@ -58,7 +58,6 @@ function makeFakeCtx(bot, userId) {
 function start(bot) {
   // Каждую минуту проверяем всех пользователей
   const task = cron.schedule('* * * * *', async () => {
-		console.log("HELLO")
     let users;
     try {
       users = getActiveUsers();
