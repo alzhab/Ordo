@@ -218,14 +218,12 @@ function normalizeWaiting(waiting_reason, waiting_until) {
 function parserReminderToUtc(reminderAt, timezone) {
   if (!reminderAt) return null;
   const isRelative = /^через\s+\d+\s+(минут|минуту|минуты|час|часа|часов)/i.test(reminderAt);
-  console.log('[parserReminderToUtc] input:', JSON.stringify(reminderAt), '| timezone:', timezone, '| isRelative:', isRelative, '| serverUTC:', new Date().toISOString());
   let result;
   if (isRelative) {
     result = parseReminderDatetime(reminderAt, timezone);
   } else {
     result = localToUtc(reminderAt, timezone);
   }
-  console.log('[parserReminderToUtc] result (UTC):', result);
   return result;
 }
 

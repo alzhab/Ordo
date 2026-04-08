@@ -58,6 +58,7 @@ function makeFakeCtx(bot, userId) {
 function start(bot) {
   // Каждую минуту проверяем всех пользователей
   const task = cron.schedule('* * * * *', async () => {
+		console.log("HELLO")
     let users;
     try {
       users = getActiveUsers();
@@ -69,9 +70,7 @@ function start(bot) {
     // Напоминания для обычных задач
     try {
       const reminders = getDueReminders();
-			console.log('[reminders]:', JSON.stringify(reminders, null, 2));
       for (const task of reminders) {
-        console.log(`[scheduler] reminder task "${task.title}" → user ${task.user_id}`);
         await bot.telegram.sendMessage(
           task.user_id,
           `🔔 *Напоминание:* ${task.title}`,
@@ -99,7 +98,6 @@ function start(bot) {
       const currentDayOfMonth = now.getDate();
       const due = getDueNow(currentHHMM, currentDay, currentDayOfMonth);
       for (const r of due) {
-        console.log(`[scheduler] recurring "${r.title}" → user ${r.user_id}`);
         const text = r.reminder_before_minutes > 0
           ? `🔔 Напоминание: *${r.title}* через ${r.reminder_before_minutes} мин.`
           : `🔔 *${r.title}*`;
@@ -122,7 +120,6 @@ function start(bot) {
           currentTime === user.morning_time &&
           !wasNotifiedToday(user.id, 'morning')
         ) {
-          console.log(`[scheduler] morning → user ${user.id}`);
           const ctx = makeFakeCtx(bot, user.id);
           await handleMorning(ctx);
         }
@@ -133,7 +130,6 @@ function start(bot) {
           currentTime === user.evening_time &&
           !wasNotifiedToday(user.id, 'review')
         ) {
-          console.log(`[scheduler] review → user ${user.id}`);
           const ctx = makeFakeCtx(bot, user.id);
           await handleReview(ctx);
         }
