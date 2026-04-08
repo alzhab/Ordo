@@ -116,7 +116,7 @@ user_settings
 - user_id PRIMARY KEY → users
 - morning_time TEXT DEFAULT '09:00'
 - evening_time TEXT DEFAULT '21:00'
-- timezone TEXT DEFAULT 'Asia/Almaty'
+- timezone TEXT DEFAULT 'Asia/Oral'
 - morning_enabled INTEGER DEFAULT 1
 - review_enabled INTEGER DEFAULT 1
 - quiet_until TEXT NULL

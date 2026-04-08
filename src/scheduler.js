@@ -29,7 +29,7 @@ function getCurrentHHMM(timezone) {
   try {
     const now = new Date();
     const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone || 'Asia/Almaty',
+      timeZone: timezone || 'Asia/Oral',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
@@ -93,7 +93,7 @@ function start(bot) {
     // Повторяющиеся задачи — проверяем один раз для всех
     try {
       const now = new Date();
-      const currentHHMM = getCurrentHHMM('Asia/Almaty');
+      const currentHHMM = getCurrentHHMM('Asia/Oral');
       const currentDay = now.getDay();
       const currentDayOfMonth = now.getDate();
       const due = getDueNow(currentHHMM, currentDay, currentDayOfMonth);

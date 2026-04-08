@@ -64,7 +64,7 @@ function createTestDb() {
       user_id         INTEGER PRIMARY KEY REFERENCES users(id),
       morning_time    TEXT    NOT NULL DEFAULT '09:00',
       evening_time    TEXT    NOT NULL DEFAULT '21:00',
-      timezone        TEXT    NOT NULL DEFAULT 'Asia/Almaty',
+      timezone        TEXT    NOT NULL DEFAULT 'Asia/Oral',
       morning_enabled INTEGER NOT NULL DEFAULT 1,
       review_enabled  INTEGER NOT NULL DEFAULT 1,
       quiet_until     TEXT,
