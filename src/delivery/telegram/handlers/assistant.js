@@ -121,9 +121,9 @@ async function renderPlanSlider(ctx, userId) {
   const { category, index } = state.planSlider;
   const { date, plannedIds, suggestions } = state.planData;
   const total = category === 'planned' ? plannedIds.length : suggestions.length;
+  const counter = `_${index + 1} из ${total}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'plan_prev' : 'plan_noop'),
-    Markup.button.callback(`${index + 1}/${total}`, 'plan_noop'),
     Markup.button.callback('▶️', 'plan_next'),
     Markup.button.callback('📋 К плану', 'plan_back'),
   ];
@@ -141,9 +141,8 @@ async function renderPlanSlider(ctx, userId) {
       pendingTasks.set(userId, state);
       return renderPlanSlider(ctx, userId);
     }
-    const counter   = `_${index + 1} из ${plannedIds.length}_`;
     const statusIcon = task.status === 'done' ? '✅' : '☐';
-    await safeEdit(ctx, `${statusIcon} *${task.title}*`, {
+    await safeEdit(ctx, `${statusIcon} *${task.title}*\n${counter}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('✅ Сделал', `plan_done_${task.id}`), Markup.button.callback('📅 На завтра', `plan_tomorrow_${task.id}`)],
@@ -167,8 +166,7 @@ async function renderPlanSlider(ctx, userId) {
       pendingTasks.set(userId, state);
       return renderPlanSlider(ctx, userId);
     }
-    const counter = `_${index + 1} из ${suggestions.length}_`;
-    await safeEdit(ctx, `🤖 *${task.title}*\n_→ ${reason}_`, {
+    await safeEdit(ctx, `🤖 *${task.title}*\n_→ ${reason}_\n${counter}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('➕ Добавить в план', `plan_add_${date}_${task.id}`)],
@@ -252,11 +250,10 @@ async function renderReviewSlider(ctx, userId) {
   }
 
   const age   = daysSince(task.updated_at);
-  const ageStr = age > 0 ? ` _(${age} дн.)_` : '';
-  const counter = ``;
+  const ageStr  = age > 0 ? ` _(${age} дн.)_` : '';
+  const counter = `_${index + 1} из ${taskIds.length}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'rv_prev' : 'rv_noop'),
-    Markup.button.callback(`${index + 1}/${taskIds.length}`, 'rv_noop'),
     Markup.button.callback('▶️', 'rv_next'),
     Markup.button.callback('📋 К списку', 'rv_back'),
   ];
@@ -264,35 +261,35 @@ async function renderReviewSlider(ctx, userId) {
   let text, buttons;
 
   if (category === 'unclosed') {
-    text = `📅 *${task.title}*\nБыло в плане на сегодня.`;
+    text = `📅 *${task.title}*\nБыло в плане на сегодня.\n${counter}`;
     buttons = [
       [Markup.button.callback('✅ Сделал', `rv_done_${task.id}`), Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
       nav,
     ];
   } else if (category === 'waiting' && task.waiting_until) {
-    text = `⏸ *${task.title}*${ageStr}\nСрок ожидания вышел.`;
+    text = `⏸ *${task.title}*${ageStr}\nСрок ожидания вышел.\n${counter}`;
     buttons = [
       [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
       [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
       nav,
     ];
   } else if (category === 'waiting') {
-    text = `⏸ *${task.title}*${ageStr}\nПора напомнить?`;
+    text = `⏸ *${task.title}*${ageStr}\nПора напомнить?\n${counter}`;
     buttons = [
       [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
       [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
       nav,
     ];
   } else if (category === 'inbox') {
-    text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?`;
+    text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?\n${counter}`;
     buttons = [
       [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('💭 В maybe', `rv_maybe_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
       nav,
     ];
   } else {
-    text = `💭 *${task.title}*${ageStr}\nВсё ещё думаешь об этом?`;
+    text = `💭 *${task.title}*${ageStr}\nВсё ещё думаешь об этом?\n${counter}`;
     buttons = [
       [Markup.button.callback('✅ Да, беру в работу', `rv_todo_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
