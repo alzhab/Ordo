@@ -64,7 +64,9 @@ ${tasksText}
 
 // ─── Вечерний разбор ─────────────────────────────────────────
 
-function getReviewTasks(userId) {
+// Возвращает задачи по категориям для сводной карточки /review.
+// Каждая категория — отдельный массив, без лимитов (показываем всё).
+function getReviewData(userId) {
   const { timezone } = getSettings(userId);
   const today = localNow(timezone);
   const threeDaysAgo = (() => {
@@ -73,59 +75,42 @@ function getReviewTasks(userId) {
     return d.toISOString().slice(0, 10);
   })();
 
-  // waiting с истёкшей датой — нужно решить что делать дальше
-  const waitingExpired = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'waiting' AND waiting_until < ?
-    AND status != 'deleted'
-    ORDER BY waiting_until ASC LIMIT 2
-  `).all(userId, today);
-
-  // waiting без даты — висит 3+ дня, пора уточнить статус
-  const waitingNoDate = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'waiting' AND waiting_until IS NULL
-    AND date(updated_at) <= ?
-    AND status != 'deleted'
-    ORDER BY updated_at ASC LIMIT 3
-  `).all(userId, threeDaysAgo);
-
-  // inbox: todo без даты, не трогалась 3+ дня — пора запланировать или убрать
-  const inbox = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'todo' AND planned_for IS NULL
-    AND date(updated_at) <= ?
-    ORDER BY updated_at ASC LIMIT 3
-  `).all(userId, threeDaysAgo);
-
-  // maybe — висит 7+ дней, всё ещё актуально?
-  const maybe = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'maybe'
-    AND date(updated_at) <= date('now', '-7 days')
-    ORDER BY updated_at ASC LIMIT 2
-  `).all(userId);
-
-  const seen = new Set();
-  const result = [];
-  for (const t of [...waitingExpired, ...waitingNoDate, ...inbox, ...maybe]) {
-    if (!seen.has(t.id) && result.length < 5) {
-      seen.add(t.id);
-      result.push(t);
-    }
-  }
-  return result;
-}
-
-// Незакрытые задачи из плана на сегодня — отдельно от основного review
-function getUnclosedPlannedTasks(userId) {
-  const { timezone } = getSettings(userId);
-  const today = localNow(timezone);
-  return db.prepare(`
+  // Незакрытые задачи из плана на сегодня
+  const unclosed = db.prepare(`
     SELECT * FROM tasks
     WHERE user_id = ? AND planned_for = ? AND status NOT IN ('done', 'deleted')
     ORDER BY created_at ASC
   `).all(userId, today);
+
+  // waiting: и просроченные, и без даты 3+ дней — одна группа, кнопки различаются по типу
+  const waiting = db.prepare(`
+    SELECT * FROM tasks
+    WHERE user_id = ? AND status = 'waiting' AND status != 'deleted'
+    AND (
+      (waiting_until IS NOT NULL AND waiting_until < ?)
+      OR
+      (waiting_until IS NULL AND date(updated_at) <= ?)
+    )
+    ORDER BY waiting_until ASC, updated_at ASC
+  `).all(userId, today, threeDaysAgo);
+
+  // inbox: todo без даты, не трогалась 3+ дня
+  const inbox = db.prepare(`
+    SELECT * FROM tasks
+    WHERE user_id = ? AND status = 'todo' AND planned_for IS NULL
+    AND date(updated_at) <= ?
+    ORDER BY updated_at ASC
+  `).all(userId, threeDaysAgo);
+
+  // maybe: висит 7+ дней
+  const maybe = db.prepare(`
+    SELECT * FROM tasks
+    WHERE user_id = ? AND status = 'maybe'
+    AND date(updated_at) <= date('now', '-7 days')
+    ORDER BY updated_at ASC
+  `).all(userId);
+
+  return { unclosed, waiting, inbox, maybe };
 }
 
 // ─── Прогресс ─────────────────────────────────────────────────
@@ -161,4 +146,4 @@ function getProgress(userId) {
   return { doneToday, doneWeek, plans, stale };
 }
 
-module.exports = { getMorningPlan, getReviewTasks, getUnclosedPlannedTasks, getProgress };
+module.exports = { getMorningPlan, getReviewData, getProgress };

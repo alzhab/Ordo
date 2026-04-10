@@ -1,9 +1,11 @@
 const { Markup } = require('telegraf');
 const { getUser } = require('../../../shared/helpers');
-const { getMorningPlan, getReviewTasks, getUnclosedPlannedTasks, getProgress } = require('../../../application/assistant');
+const { getMorningPlan, getReviewData, getProgress } = require('../../../application/assistant');
 const { logNotification, wasNotifiedToday } = require('../../../application/notifications');
 const { isQuietMode } = require('../../../application/settings');
-const { getTaskById, updateTask, getTasks, getTasksByPlannedDate } = require('../../../application/tasks');
+const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate } = require('../../../application/tasks');
+const { pendingTasks } = require('../../../shared/state');
+const { safeEdit } = require('../../../shared/helpers');
 const { getAll: getAllRecurring, remove: removeRecurring, formatSchedule } = require('../../../application/notifications');
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -110,84 +112,130 @@ async function handleMorningForDate(ctx, date) {
   });
 }
 
-// ─── /review ─────────────────────────────────────────────────
+// ─── /review — сводная карточка ──────────────────────────────
 
-async function handleReview(ctx) {
-  getUser(ctx);
-  const userId = ctx.from.id;
+const RV_LABELS = {
+  unclosed: '📅 Из плана',
+  waiting:  '⏸ В ожидании',
+  inbox:    '📋 Без даты',
+  maybe:    '💭 Может быть',
+};
 
-  // Незакрытые задачи из плана на сегодня — одним блоком
-  const unclosed = getUnclosedPlannedTasks(userId);
-  if (unclosed.length) {
-    const titles = unclosed.map(t => `• ${t.title}`).join('\n');
-    const ids = unclosed.map(t => t.id).join('_');
-    await ctx.reply(
-      `📅 *Не закрыто из плана на сегодня (${unclosed.length}):*\n${titles}\n\n_Перенести на завтра?_`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('▶️ Перенести все на завтра', `ast_rv_tomorrow_bulk_${ids}`)],
-          [Markup.button.callback('⏭ Пропустить', 'ast_rv_skip')],
-        ]),
-      }
-    );
+// Строит и показывает сводную карточку. При reply=true отправляет новое сообщение,
+// при reply=false редактирует текущее (после возврата из слайдера).
+async function renderReviewSummary(ctx, userId, reply = false) {
+  const data = getReviewData(userId);
+  const total = data.unclosed.length + data.waiting.length + data.inbox.length + data.maybe.length;
+
+  if (total === 0) {
+    const text = '✅ Зависших задач нет. Всё под контролем!';
+    return reply ? ctx.reply(text) : safeEdit(ctx, text);
   }
 
-  const tasks = getReviewTasks(userId);
+  // Сохраняем id задач по категориям — слайдер будет их читать
+  const state = pendingTasks.get(userId) ?? {};
+  state.reviewData = {
+    unclosed: data.unclosed.map(t => t.id),
+    waiting:  data.waiting.map(t => t.id),
+    inbox:    data.inbox.map(t => t.id),
+    maybe:    data.maybe.map(t => t.id),
+  };
+  pendingTasks.set(userId, state);
 
-  if (!tasks.length && !unclosed.length) {
-    return ctx.reply('✅ Зависших задач нет. Всё под контролем!');
+  const lines = ['🔍 *Разбор задач*\n'];
+  const buttons = [];
+
+  if (data.unclosed.length) {
+    lines.push(`📅 Из плана на сегодня: *${data.unclosed.length}*`);
+    buttons.push([Markup.button.callback(`📅 Из плана (${data.unclosed.length})`, 'rv_open_unclosed')]);
+  }
+  if (data.waiting.length) {
+    lines.push(`⏸ В ожидании: *${data.waiting.length}*`);
+    buttons.push([Markup.button.callback(`⏸ В ожидании (${data.waiting.length})`, 'rv_open_waiting')]);
+  }
+  if (data.inbox.length) {
+    lines.push(`📋 Без даты: *${data.inbox.length}*`);
+    buttons.push([Markup.button.callback(`📋 Без даты (${data.inbox.length})`, 'rv_open_inbox')]);
+  }
+  if (data.maybe.length) {
+    lines.push(`💭 Может быть: *${data.maybe.length}*`);
+    buttons.push([Markup.button.callback(`💭 Может быть (${data.maybe.length})`, 'rv_open_maybe')]);
   }
 
-  if (!tasks.length) return;
+  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) };
+  return reply ? ctx.reply(lines.join('\n'), opts) : safeEdit(ctx, lines.join('\n'), opts);
+}
 
-  logNotification(userId, 'review');
+// Показывает текущую задачу в слайдере — редактирует сообщение.
+async function renderReviewSlider(ctx, userId) {
+  const state = pendingTasks.get(userId);
+  const { taskIds, index, category } = state.reviewSlider;
 
-  for (const t of tasks) {
-    const age = daysSince(t.updated_at);
-    const ageStr = age > 0 ? ` (${age} дн.)` : '';
-
-    let text, buttons;
-
-    if (t.status === 'waiting' && t.waiting_until) {
-      // Просроченное waiting
-      text = `⏸ *${t.title}*${ageStr}\n_Срок ожидания вышел. Что делаем?_`;
-      buttons = [
-        [Markup.button.callback('▶️ Взять в работу', `ast_rv_todo_${t.id}`)],
-        [Markup.button.callback('⏸ Ещё жду', `ast_rv_keep_${t.id}`), Markup.button.callback('❌ Закрыть', `ast_rv_done_${t.id}`)],
-      ];
-    } else if (t.status === 'waiting') {
-      // Waiting без даты
-      text = `⏸ *${t.title}*${ageStr}\n_Пора напомнить?_`;
-      buttons = [
-        [Markup.button.callback('📋 Добавить задачу', `ast_rv_remind_${t.id}`)],
-        [Markup.button.callback('⏸ Ещё жду', `ast_rv_keep_${t.id}`), Markup.button.callback('❌ Закрыть', `ast_rv_done_${t.id}`)],
-      ];
-    } else if (t.status === 'maybe') {
-      text = `💭 *${t.title}*${ageStr}\n_Всё ещё думаешь об этом?_`;
-      buttons = [
-        [Markup.button.callback('✅ Да, беру в работу', `ast_rv_todo_${t.id}`)],
-        [Markup.button.callback('🗑 Удалить', `ast_rv_del_${t.id}`)],
-      ];
-    } else {
-      // Inbox: todo без даты
-      text = `📋 *${t.title}*${ageStr}\n_Лежит без даты. Запланировать или убрать?_`;
-      buttons = [
-        [Markup.button.callback('📅 На завтра', `ast_rv_tomorrow_${t.id}`), Markup.button.callback('💭 В maybe', `ast_rv_maybe_${t.id}`)],
-        [Markup.button.callback('🗑 Удалить', `ast_rv_del_${t.id}`)],
-      ];
-    }
-
-    await ctx.reply(text, {
+  if (index >= taskIds.length) {
+    return safeEdit(ctx, `✅ *${RV_LABELS[category]}* — разобрано!`, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons),
+      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К списку', 'rv_back')]]),
     });
   }
 
-  await ctx.reply('_Это все зависшие задачи._', {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([[Markup.button.callback('⏭ Пропустить всё', 'ast_rv_skip')]]),
-  });
+  const task = getTaskById(taskIds[index]);
+  if (!task || task.status === 'deleted') {
+    state.reviewSlider.index++;
+    pendingTasks.set(userId, state);
+    return renderReviewSlider(ctx, userId);
+  }
+
+  const age   = daysSince(task.updated_at);
+  const ageStr = age > 0 ? ` _(${age} дн.)_` : '';
+  const counter = `_${index + 1} из ${taskIds.length}_`;
+  const nav = [Markup.button.callback('⏭ Пропустить', 'rv_skip'), Markup.button.callback('◀️ К списку', 'rv_back')];
+
+  let text, buttons;
+
+  if (category === 'unclosed') {
+    text = `📅 *${task.title}*\nБыло в плане на сегодня.\n\n${counter}`;
+    buttons = [
+      [Markup.button.callback('✅ Сделал', `rv_done_${task.id}`), Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`)],
+      [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
+      nav,
+    ];
+  } else if (category === 'waiting' && task.waiting_until) {
+    text = `⏸ *${task.title}*${ageStr}\nСрок ожидания вышел.\n\n${counter}`;
+    buttons = [
+      [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
+      [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
+      nav,
+    ];
+  } else if (category === 'waiting') {
+    text = `⏸ *${task.title}*${ageStr}\nПора напомнить?\n\n${counter}`;
+    buttons = [
+      [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
+      [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
+      nav,
+    ];
+  } else if (category === 'inbox') {
+    text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?\n\n${counter}`;
+    buttons = [
+      [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('💭 В maybe', `rv_maybe_${task.id}`)],
+      [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
+      nav,
+    ];
+  } else {
+    text = `💭 *${task.title}*${ageStr}\nВсё ещё думаешь об этом?\n\n${counter}`;
+    buttons = [
+      [Markup.button.callback('✅ Да, беру в работу', `rv_todo_${task.id}`)],
+      [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
+      nav,
+    ];
+  }
+
+  await safeEdit(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+async function handleReview(ctx) {
+  const userId = getUser(ctx);
+  logNotification(userId, 'review');
+  await renderReviewSummary(ctx, userId, true);
 }
 
 // ─── /progress ───────────────────────────────────────────────
@@ -283,60 +331,62 @@ function register(bot) {
     ctx.reply(`💪 План на ${formatDateLabel(date)} сохранён. Удачного дня!`);
   });
 
-  // Review actions
-  bot.action(/^ast_rv_todo_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    updateTask(id, { status: 'todo', waiting_reason: null, waiting_until: null });
-    ctx.answerCbQuery('Взято в работу');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  // Review — открыть слайдер категории
+  bot.action(/^rv_open_(unclosed|waiting|inbox|maybe)$/, async (ctx) => {
+    const category = ctx.match[1];
+    const userId   = getUser(ctx);
+    const state    = pendingTasks.get(userId) ?? {};
+    const taskIds  = state.reviewData?.[category] ?? [];
+    if (!taskIds.length) return ctx.answerCbQuery('Задач нет');
+    state.reviewSlider = { taskIds, index: 0, category };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewSlider(ctx, userId);
   });
-  bot.action(/^ast_rv_keep_(\d+)$/, ctx => {
-    ctx.answerCbQuery('Хорошо, оставлю');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+  // Review — вернуться к сводке
+  bot.action('rv_back', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    delete state.reviewSlider;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewSummary(ctx, userId);
   });
-  bot.action(/^ast_rv_done_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    updateTask(id, { status: 'done' });
-    ctx.answerCbQuery('Закрыто ✅');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+  // Review — пропустить текущую задачу
+  bot.action('rv_skip', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.reviewSlider) return ctx.answerCbQuery();
+    state.reviewSlider.index++;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewSlider(ctx, userId);
   });
-  bot.action(/^ast_rv_del_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    updateTask(id, { status: 'deleted' });
-    ctx.answerCbQuery('Удалено');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  });
-  bot.action(/^ast_rv_maybe_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    updateTask(id, { status: 'maybe' });
-    ctx.answerCbQuery('Перенесено в «Возможно»');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  });
-  bot.action(/^ast_rv_tomorrow_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    updateTask(id, { planned_for: tomorrow.toISOString().split('T')[0] });
-    ctx.answerCbQuery('Перенесено на завтра');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  });
-  bot.action(/^ast_rv_remind_(\d+)$/, ctx => {
-    ctx.answerCbQuery();
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    ctx.reply('Напиши задачу-напоминание — добавлю.');
-  });
-  // Перенести все незакрытые задачи из плана на завтра одним нажатием
-  bot.action(/^ast_rv_tomorrow_bulk_(.+)$/, ctx => {
-    const ids = ctx.match[1].split('_').map(Number);
-    const tomorrow = addDays(1);
-    ids.forEach(id => updateTask(id, { planned_for: tomorrow }));
-    ctx.answerCbQuery(`Перенесено на завтра: ${ids.length}`);
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  });
-  bot.action('ast_rv_skip', ctx => {
-    ctx.answerCbQuery('Пропущено');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  });
+
+  // Review — действия над задачей (применяют + переходят к следующей)
+  function rvAction(fn, toast) {
+    return async (ctx) => {
+      const userId = getUser(ctx);
+      const id     = parseInt(ctx.match[1]);
+      fn(id, userId);
+      await ctx.answerCbQuery(toast);
+      const state = pendingTasks.get(userId);
+      if (state?.reviewSlider) {
+        state.reviewSlider.index++;
+        pendingTasks.set(userId, state);
+        await renderReviewSlider(ctx, userId);
+      }
+    };
+  }
+
+  bot.action(/^rv_done_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'done' }, uid),                               '✅ Готово'));
+  bot.action(/^rv_todo_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'todo', waiting_reason: null, waiting_until: null }, uid), '▶️ Взято в работу'));
+  bot.action(/^rv_maybe_(\d+)$/,    rvAction((id, uid) => updateTask(id, { status: 'maybe' }, uid),                              '💭 В может быть'));
+  bot.action(/^rv_del_(\d+)$/,      rvAction((id, uid) => deleteTask(id, uid),                                                   '🗑 Удалено'));
+  bot.action(/^rv_keep_(\d+)$/,     rvAction(() => {},                                                                           '⏸ Оставлено'));
+  bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                      '📅 На завтра'));
 
   // Recurring — удаление
   bot.action(/^rec_del_(\d+)$/, ctx => {
