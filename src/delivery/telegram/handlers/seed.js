@@ -64,7 +64,7 @@ async function handleSeed(ctx) {
   for (const { _created_ago, _subtasks, ...data } of tasks) {
     const task = createTask(userId, data);
     if (_subtasks) {
-      createSubtasks(task.id, _subtasks.map(title => ({ title })));
+      createSubtasks(task.id, _subtasks);
     }
     // Сдвигаем created_at и updated_at назад если нужно для тестирования review
     if (_created_ago) {
