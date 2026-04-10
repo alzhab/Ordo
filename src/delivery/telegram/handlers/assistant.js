@@ -124,8 +124,8 @@ async function renderPlanSlider(ctx, userId) {
   const counter = `_${index + 1} из ${total}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'plan_prev' : 'plan_noop'),
-    Markup.button.callback('▶️', 'plan_next'),
     Markup.button.callback('📋 К плану', 'plan_back'),
+    Markup.button.callback('▶️', 'plan_next'),
   ];
 
   if (category === 'planned') {
@@ -254,8 +254,8 @@ async function renderReviewSlider(ctx, userId) {
   const counter = `_${index + 1} из ${taskIds.length}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'rv_prev' : 'rv_noop'),
-    Markup.button.callback('▶️', 'rv_next'),
     Markup.button.callback('📋 К списку', 'rv_back'),
+    Markup.button.callback('▶️', 'rv_next'),
   ];
 
   let text, buttons;
