@@ -1,15 +1,17 @@
 const { createTestDb } = require('./helpers/db');
 
 let mockTestDb;
-jest.mock('../src/db', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
 
 let categoryService;
 
 beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
-  jest.mock('../src/db', () => mockTestDb);
-  categoryService = require('../src/categoryService');
+  jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+  categoryService = require('../src/application/categories');
 });
 
 const USER_ID = 1;

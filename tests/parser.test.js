@@ -5,11 +5,11 @@ jest.mock('@anthropic-ai/sdk', () => {
     messages: { create: mockCreate },
   }));
 });
-jest.mock('../src/config', () => ({
+jest.mock('../src/shared/config', () => ({
   ANTHROPIC_API_KEY: 'test-key',
 }));
 
-const { parseIntent, suggestSubtasks } = require('../src/parser');
+const { parseIntent, suggestSubtasks } = require('../src/infrastructure/ai/parser');
 
 function mockResponse(text) {
   mockCreate.mockResolvedValueOnce({

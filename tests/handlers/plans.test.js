@@ -19,9 +19,10 @@ const { createMockBot } = require('../helpers/bot');
 // ─── Моки ────────────────────────────────────────────────────────────────────
 
 let mockTestDb;
-jest.mock('../../src/db', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 
-jest.mock('../../src/integrations/notion', () => ({
+jest.mock('../../src/infrastructure/integrations/notion', () => ({
   isConfigured:            () => false,
   isPlansConfigured:       () => false,
   pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -45,8 +46,9 @@ beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
 
-  jest.mock('../../src/db', () => mockTestDb);
-  jest.mock('../../src/integrations/notion', () => ({
+  jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+  jest.mock('../../src/infrastructure/integrations/notion', () => ({
     isConfigured:            () => false,
     isPlansConfigured:       () => false,
     pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -62,18 +64,18 @@ beforeEach(() => {
   }));
 
   bot         = createMockBot();
-  planService = require('../../src/planService');
-  taskService = require('../../src/taskService');
-  ({ pendingTasks } = require('../../src/state'));
+  planService = require('../../src/application/goals');
+  taskService = require('../../src/application/tasks');
+  ({ pendingTasks } = require('../../src/shared/state'));
 
-  require('../../src/handlers/plans').register(bot);
+  require('../../src/delivery/telegram/handlers/plans').register(bot);
 });
 
 // ─── SC-43: /plans ────────────────────────────────────────────────────────────
 
 describe('SC-43: /plans — команда', () => {
   test('отправляет список планов', async () => {
-    planService.createPlan(USER_ID, { title: 'Выучить испанский' });
+    planService.createGoal(USER_ID, { title: 'Выучить испанский' });
     const ctx = mockCtx({ userId: USER_ID });
     await bot.triggerCommand('plans', ctx);
 
@@ -93,7 +95,7 @@ describe('SC-43: /plans — команда', () => {
 
 describe('SC-44: pv_N — карточка плана', () => {
   test('открывает карточку плана', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Научиться рисовать' });
+    const plan = planService.createGoal(USER_ID, { title: 'Научиться рисовать' });
     const ctx  = mockCtx({ userId: USER_ID, isCallback: true });
 
     await bot.trigger(`pv_${plan.id}`, ctx);
@@ -114,17 +116,17 @@ describe('SC-44: pv_N — карточка плана', () => {
 
 describe('SC-45а: plan_archive_N — архивирование', () => {
   test('план переходит в статус archived', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Архивировать меня' });
+    const plan = planService.createGoal(USER_ID, { title: 'Архивировать меня' });
     const ctx  = mockCtx({ userId: USER_ID, isCallback: true });
 
     await bot.trigger(`plan_archive_${plan.id}`, ctx);
 
-    const updated = planService.getPlanById(plan.id);
+    const updated = planService.getGoalById(plan.id);
     expect(updated.status).toBe('archived');
   });
 
   test('archivePlan вызывает answerCbQuery с подтверждением', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Тест архив' });
+    const plan = planService.createGoal(USER_ID, { title: 'Тест архив' });
     const ctx  = mockCtx({ userId: USER_ID, isCallback: true });
 
     await bot.trigger(`plan_archive_${plan.id}`, ctx);
@@ -137,19 +139,19 @@ describe('SC-45а: plan_archive_N — архивирование', () => {
 
 describe('SC-45б: plan_restore_N — восстановление', () => {
   test('план восстанавливается из архива', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Восстановить меня' });
-    planService.archivePlan(plan.id);
+    const plan = planService.createGoal(USER_ID, { title: 'Восстановить меня' });
+    planService.archiveGoal(plan.id);
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
     await bot.trigger(`plan_restore_${plan.id}`, ctx);
 
-    const updated = planService.getPlanById(plan.id);
+    const updated = planService.getGoalById(plan.id);
     expect(updated.status).toBe('active');
   });
 
   test('answerCbQuery содержит название плана', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Мой план' });
-    planService.archivePlan(plan.id);
+    const plan = planService.createGoal(USER_ID, { title: 'Мой план' });
+    planService.archiveGoal(plan.id);
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
     await bot.trigger(`plan_restore_${plan.id}`, ctx);
@@ -162,7 +164,7 @@ describe('SC-45б: plan_restore_N — восстановление', () => {
 
 describe('SC-46: plan_tasks_N — задачи плана', () => {
   test('показывает задачи плана', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Мой план' });
+    const plan = planService.createGoal(USER_ID, { title: 'Мой план' });
     taskService.createTask(USER_ID, { title: 'Задача плана', plan_id: plan.id });
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
@@ -204,14 +206,14 @@ describe('SC-47: plan_new — инициирует создание плана',
 
 describe('SC-48: parc_del_only_N — удаление только плана', () => {
   test('план удаляется, задачи остаются', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Удаляемый план' });
-    planService.archivePlan(plan.id);
+    const plan = planService.createGoal(USER_ID, { title: 'Удаляемый план' });
+    planService.archiveGoal(plan.id);
     taskService.createTask(USER_ID, { title: 'Задача плана', plan_id: plan.id });
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
     await bot.trigger(`parc_del_only_${plan.id}`, ctx);
 
-    expect(planService.getPlanById(plan.id)).toBeFalsy();
+    expect(planService.getGoalById(plan.id)).toBeFalsy();
     // Задача остаётся в БД
     const tasks = taskService.getTasks(USER_ID);
     expect(tasks.length).toBe(1);
@@ -222,22 +224,22 @@ describe('SC-48: parc_del_only_N — удаление только плана', 
 
 describe('SC-49: parc_del_tasks_N — удаление плана вместе с задачами', () => {
   test('план и задачи удаляются', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Удаляемый план' });
-    planService.archivePlan(plan.id);
+    const plan = planService.createGoal(USER_ID, { title: 'Удаляемый план' });
+    planService.archiveGoal(plan.id);
     taskService.createTask(USER_ID, { title: 'Задача 1', plan_id: plan.id });
     taskService.createTask(USER_ID, { title: 'Задача 2', plan_id: plan.id });
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
     await bot.trigger(`parc_del_tasks_${plan.id}`, ctx);
 
-    expect(planService.getPlanById(plan.id)).toBeFalsy();
+    expect(planService.getGoalById(plan.id)).toBeFalsy();
     // Задачи помечены deleted — не видны в обычном getTasks
     expect(taskService.getTasks(USER_ID).length).toBe(0);
   });
 
   test('answerCbQuery содержит подтверждение удаления', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Тест' });
-    planService.archivePlan(plan.id);
+    const plan = planService.createGoal(USER_ID, { title: 'Тест' });
+    planService.archiveGoal(plan.id);
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
     await bot.trigger(`parc_del_tasks_${plan.id}`, ctx);

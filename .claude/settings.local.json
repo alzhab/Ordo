@@ -11,7 +11,10 @@
       "Bash(npx jest:*)",
       "Bash(TELEGRAM_BOT_TOKEN=x GROQ_API_KEY=x ANTHROPIC_API_KEY=x npx jest --forceExit tests/handlers/edit_saved.test.js)",
       "Bash(echo \"Test PID: $!\")",
-      "Bash(kill %1)"
+      "Bash(kill %1)",
+      "Bash(ls /Users/alzhan/Projects/Ordo/src/*.js)",
+      "Bash(xargs -I{} basename {})",
+      "Bash(perl -i -pe \"s|require\\\\\\('\\\\./\\([^']+\\)'\\\\\\)|require\\('../\\\\$1'\\)|g\" /Users/alzhan/Projects/Ordo/src/shared/helpers.js)"
     ]
   }
 }

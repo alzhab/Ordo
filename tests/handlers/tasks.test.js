@@ -24,9 +24,10 @@ const { mockCtx }      = require('../helpers/ctx');
 // ─── Мокируем зависимости ДО require ────────────────────────────────────────
 
 let mockTestDb;
-jest.mock('../../src/db', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 
-jest.mock('../../src/integrations/notion', () => ({
+jest.mock('../../src/infrastructure/integrations/notion', () => ({
   isConfigured:          () => false,
   isPlansConfigured:     () => false,
   pushTask:              jest.fn().mockResolvedValue('notion-page-id'),
@@ -41,7 +42,7 @@ jest.mock('../../src/integrations/notion', () => ({
   updatePlanFields:      jest.fn().mockResolvedValue({}),
 }));
 
-jest.mock('../../src/parser', () => ({
+jest.mock('../../src/infrastructure/ai/parser', () => ({
   parseIntent:     jest.fn(),
   suggestSubtasks: jest.fn(),
 }));
@@ -59,8 +60,9 @@ beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
 
-  jest.mock('../../src/db', () => mockTestDb);
-  jest.mock('../../src/integrations/notion', () => ({
+  jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+  jest.mock('../../src/infrastructure/integrations/notion', () => ({
     isConfigured:          () => false,
     isPlansConfigured:     () => false,
     pushTask:              jest.fn().mockResolvedValue('notion-page-id'),
@@ -74,15 +76,15 @@ beforeEach(() => {
     unarchiveNotionPage:   jest.fn().mockResolvedValue({}),
     updatePlanFields:      jest.fn().mockResolvedValue({}),
   }));
-  jest.mock('../../src/parser', () => ({
+  jest.mock('../../src/infrastructure/ai/parser', () => ({
     parseIntent:     jest.fn(),
     suggestSubtasks: jest.fn(),
   }));
 
-  ({ handleText, executeTaskAction } = require('../../src/handlers/intent'));
-  ({ pendingTasks, taskFilters, getFilter } = require('../../src/state'));
-  taskService = require('../../src/taskService');
-  ({ parseIntent } = require('../../src/parser'));
+  ({ handleText, executeTaskAction } = require('../../src/delivery/telegram/handlers/intent'));
+  ({ pendingTasks, taskFilters, getFilter } = require('../../src/shared/state'));
+  taskService = require('../../src/application/tasks');
+  ({ parseIntent } = require('../../src/infrastructure/ai/parser'));
 });
 
 // ─── SC-01: create_task — простая задача ─────────────────────────────────────
@@ -458,19 +460,19 @@ describe('SC-30..SC-32: waiting dialog (многошаговый)', () => {
 
 describe('SC-33: formatWaitingUntil — отображение просроченной даты', () => {
   test('просроченная дата получает префикс ⚠️', () => {
-    const { formatWaitingUntil } = require('../../src/formatters');
+    const { formatWaitingUntil } = require('../../src/delivery/telegram/formatters');
     const past = '2020-01-15';
     expect(formatWaitingUntil(past)).toMatch(/^⚠️/);
   });
 
   test('будущая дата не имеет ⚠️', () => {
-    const { formatWaitingUntil } = require('../../src/formatters');
+    const { formatWaitingUntil } = require('../../src/delivery/telegram/formatters');
     const future = '2099-12-31';
     expect(formatWaitingUntil(future)).not.toMatch(/^⚠️/);
   });
 
   test('null возвращает null', () => {
-    const { formatWaitingUntil } = require('../../src/formatters');
+    const { formatWaitingUntil } = require('../../src/delivery/telegram/formatters');
     expect(formatWaitingUntil(null)).toBeNull();
   });
 });

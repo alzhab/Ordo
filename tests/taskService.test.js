@@ -2,7 +2,8 @@ const { createTestDb } = require('./helpers/db');
 
 // Мокаем db.js чтобы использовать тестовую БД
 let mockTestDb;
-jest.mock('../src/db', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
 
 let taskService;
 let categoryService;
@@ -10,9 +11,10 @@ let categoryService;
 beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
-  jest.mock('../src/db', () => mockTestDb);
-  taskService = require('../src/taskService');
-  categoryService = require('../src/categoryService');
+  jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+  taskService = require('../src/application/tasks');
+  categoryService = require('../src/application/categories');
 });
 
 const USER_ID = 1;
@@ -22,7 +24,7 @@ describe('createTask', () => {
     const task = taskService.createTask(USER_ID, { title: 'Купить молоко' });
     expect(task.id).toBeDefined();
     expect(task.title).toBe('Купить молоко');
-    expect(task.status).toBe('not_started');
+    expect(task.status).toBe('todo');
     expect(task.user_id).toBe(USER_ID);
   });
 

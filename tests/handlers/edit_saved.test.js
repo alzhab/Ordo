@@ -20,9 +20,10 @@ const { createMockBot } = require('../helpers/bot');
 // ─── Моки ────────────────────────────────────────────────────────────────────
 
 let mockTestDb;
-jest.mock('../../src/db', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 
-jest.mock('../../src/integrations/notion', () => ({
+jest.mock('../../src/infrastructure/integrations/notion', () => ({
   isConfigured:            () => false,
   isPlansConfigured:       () => false,
   pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -37,7 +38,7 @@ jest.mock('../../src/integrations/notion', () => ({
   updatePlanFields:        jest.fn().mockResolvedValue({}),
 }));
 
-jest.mock('../../src/parser', () => ({
+jest.mock('../../src/infrastructure/ai/parser', () => ({
   parseIntent:     jest.fn(),
   suggestSubtasks: jest.fn(),
 }));
@@ -51,8 +52,9 @@ beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
 
-  jest.mock('../../src/db', () => mockTestDb);
-  jest.mock('../../src/integrations/notion', () => ({
+  jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+  jest.mock('../../src/infrastructure/integrations/notion', () => ({
     isConfigured:            () => false,
     isPlansConfigured:       () => false,
     pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -66,19 +68,19 @@ beforeEach(() => {
     unarchiveNotionPage:     jest.fn().mockResolvedValue({}),
     updatePlanFields:        jest.fn().mockResolvedValue({}),
   }));
-  jest.mock('../../src/parser', () => ({
+  jest.mock('../../src/infrastructure/ai/parser', () => ({
     parseIntent:     jest.fn(),
     suggestSubtasks: jest.fn(),
   }));
 
   bot             = createMockBot();
-  taskService     = require('../../src/taskService');
-  planService     = require('../../src/planService');
-  categoryService = require('../../src/categoryService');
-  ({ pendingTasks } = require('../../src/state'));
-  ({ handleText } = require('../../src/handlers/intent'));
+  taskService     = require('../../src/application/tasks');
+  planService     = require('../../src/application/goals');
+  categoryService = require('../../src/application/categories');
+  ({ pendingTasks } = require('../../src/shared/state'));
+  ({ handleText } = require('../../src/delivery/telegram/handlers/intent'));
 
-  require('../../src/handlers/tasks').register(bot);
+  require('../../src/delivery/telegram/handlers/tasks').register(bot);
 });
 
 // ─── SC-19: edit_saved_N — меню редактирования ───────────────────────────────
@@ -243,7 +245,7 @@ describe('SC-24: prisaved_N_X — обновление приоритета', ()
 
 describe('SC-25: plansaved_N_M — обновление плана задачи', () => {
   test('задача привязывается к плану', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Мой план' });
+    const plan = planService.createGoal(USER_ID, { title: 'Мой план' });
     const task = taskService.createTask(USER_ID, { title: 'Задача' });
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });
@@ -253,7 +255,7 @@ describe('SC-25: plansaved_N_M — обновление плана задачи'
   });
 
   test('plansaved_N_0 убирает задачу из плана', async () => {
-    const plan = planService.createPlan(USER_ID, { title: 'Мой план' });
+    const plan = planService.createGoal(USER_ID, { title: 'Мой план' });
     const task = taskService.createTask(USER_ID, { title: 'Задача', plan_id: plan.id });
 
     const ctx = mockCtx({ userId: USER_ID, isCallback: true });

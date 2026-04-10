@@ -18,9 +18,10 @@ const { createMockBot } = require('../helpers/bot');
 // ─── Моки ────────────────────────────────────────────────────────────────────
 
 let mockTestDb;
-jest.mock('../../src/db', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 
-jest.mock('../../src/integrations/notion', () => ({
+jest.mock('../../src/infrastructure/integrations/notion', () => ({
   isConfigured:            () => false,
   isPlansConfigured:       () => false,
   pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -37,7 +38,7 @@ jest.mock('../../src/integrations/notion', () => ({
   updatePlanFields:        jest.fn().mockResolvedValue({}),
 }));
 
-jest.mock('../../src/parser', () => ({
+jest.mock('../../src/infrastructure/ai/parser', () => ({
   parseIntent:      jest.fn(),
   suggestSubtasks:  jest.fn().mockResolvedValue(['Шаг A', 'Шаг B', 'Шаг C']),
 }));
@@ -51,8 +52,9 @@ beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
 
-  jest.mock('../../src/db', () => mockTestDb);
-  jest.mock('../../src/integrations/notion', () => ({
+  jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+  jest.mock('../../src/infrastructure/integrations/notion', () => ({
     isConfigured:            () => false,
     isPlansConfigured:       () => false,
     pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -68,19 +70,19 @@ beforeEach(() => {
     unarchiveNotionPage:     jest.fn().mockResolvedValue({}),
     updatePlanFields:        jest.fn().mockResolvedValue({}),
   }));
-  jest.mock('../../src/parser', () => ({
+  jest.mock('../../src/infrastructure/ai/parser', () => ({
     parseIntent:     jest.fn(),
     suggestSubtasks: jest.fn().mockResolvedValue(['Шаг A', 'Шаг B', 'Шаг C']),
   }));
 
   bot            = createMockBot();
-  taskService    = require('../../src/taskService');
-  subtaskService = require('../../src/subtaskService');
-  ({ pendingTasks } = require('../../src/state'));
-  ({ handleText } = require('../../src/handlers/intent'));
+  taskService    = require('../../src/application/tasks');
+  subtaskService = require('../../src/application/subtasks');
+  ({ pendingTasks } = require('../../src/shared/state'));
+  ({ handleText } = require('../../src/delivery/telegram/handlers/intent'));
 
-  require('../../src/handlers/tasks').register(bot);
-  require('../../src/handlers/subtasks').register(bot);
+  require('../../src/delivery/telegram/handlers/tasks').register(bot);
+  require('../../src/delivery/telegram/handlers/subtasks').register(bot);
 });
 
 // ─── SC-53: steps_N — открыть список шагов ───────────────────────────────────

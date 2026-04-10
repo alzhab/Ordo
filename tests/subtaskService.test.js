@@ -1,7 +1,8 @@
 const { createTestDb } = require('./helpers/db');
 
 let mockTestDb;
-jest.mock('../src/db', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
 
 let subtaskService;
 let taskService;
@@ -9,9 +10,10 @@ let taskService;
 beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
-  jest.mock('../src/db', () => mockTestDb);
-  subtaskService = require('../src/subtaskService');
-  taskService = require('../src/taskService');
+  jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../src/infrastructure/db/connection', () => mockTestDb);
+  subtaskService = require('../src/application/subtasks');
+  taskService = require('../src/application/tasks');
 });
 
 const USER_ID = 1;

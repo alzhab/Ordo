@@ -20,9 +20,10 @@ const { createMockBot } = require('../helpers/bot');
 // ─── Моки ────────────────────────────────────────────────────────────────────
 
 let mockTestDb;
-jest.mock('../../src/db', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 
-jest.mock('../../src/integrations/notion', () => ({
+jest.mock('../../src/infrastructure/integrations/notion', () => ({
   isConfigured:            () => false,
   isPlansConfigured:       () => false,
   pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -46,8 +47,9 @@ beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
 
-  jest.mock('../../src/db', () => mockTestDb);
-  jest.mock('../../src/integrations/notion', () => ({
+  jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+  jest.mock('../../src/infrastructure/integrations/notion', () => ({
     isConfigured:            () => false,
     isPlansConfigured:       () => false,
     pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -63,11 +65,11 @@ beforeEach(() => {
   }));
 
   bot            = createMockBot();
-  taskService    = require('../../src/taskService');
-  subtaskService = require('../../src/subtaskService');
-  ({ pendingTasks } = require('../../src/state'));
+  taskService    = require('../../src/application/tasks');
+  subtaskService = require('../../src/application/subtasks');
+  ({ pendingTasks } = require('../../src/shared/state'));
 
-  require('../../src/handlers/tasks').register(bot);
+  require('../../src/delivery/telegram/handlers/tasks').register(bot);
 });
 
 // ─── SC-01 (финал): confirm → задача сохраняется ─────────────────────────────
@@ -85,7 +87,7 @@ describe('SC-01 (финал): confirm — создание задачи', () => 
     const tasks = taskService.getTasks(USER_ID);
     expect(tasks.length).toBe(1);
     expect(tasks[0].title).toBe('Купить молоко');
-    expect(tasks[0].status).toBe('not_started');
+    expect(tasks[0].status).toBe('todo');
   });
 
   test('state очищается после создания', async () => {

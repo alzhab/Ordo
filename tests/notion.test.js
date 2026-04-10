@@ -25,13 +25,13 @@ jest.mock('@notionhq/client', () => ({
   })),
 }));
 
-jest.mock('../src/config', () => ({
+jest.mock('../src/shared/config', () => ({
   NOTION_TOKEN: 'test-token',
   NOTION_DATABASE_ID: 'db-tasks',
   NOTION_PLANS_DATABASE_ID: 'db-plans',
 }));
 
-const notion = require('../src/integrations/notion');
+const notion = require('../src/infrastructure/integrations/notion');
 
 beforeEach(() => {
   jest.clearAllMocks();

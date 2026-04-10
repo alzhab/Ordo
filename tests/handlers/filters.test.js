@@ -22,9 +22,10 @@ const { createMockBot } = require('../helpers/bot');
 // ─── Моки ────────────────────────────────────────────────────────────────────
 
 let mockTestDb;
-jest.mock('../../src/db', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 
-jest.mock('../../src/integrations/notion', () => ({
+jest.mock('../../src/infrastructure/integrations/notion', () => ({
   isConfigured:            () => false,
   isPlansConfigured:       () => false,
   pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -48,8 +49,9 @@ beforeEach(() => {
   mockTestDb = createTestDb();
   jest.resetModules();
 
-  jest.mock('../../src/db', () => mockTestDb);
-  jest.mock('../../src/integrations/notion', () => ({
+  jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
+  jest.mock('../../src/infrastructure/integrations/notion', () => ({
     isConfigured:            () => false,
     isPlansConfigured:       () => false,
     pushTask:                jest.fn().mockResolvedValue('notion-id'),
@@ -65,11 +67,11 @@ beforeEach(() => {
   }));
 
   bot         = createMockBot();
-  taskService = require('../../src/taskService');
-  planService = require('../../src/planService');
-  ({ taskFilters, getFilter } = require('../../src/state'));
+  taskService = require('../../src/application/tasks');
+  planService = require('../../src/application/goals');
+  ({ taskFilters, getFilter } = require('../../src/shared/state'));
 
-  require('../../src/handlers/tasks').register(bot);
+  require('../../src/delivery/telegram/handlers/tasks').register(bot);
 });
 
 // ─── SC-09: /tasks ────────────────────────────────────────────────────────────
@@ -182,7 +184,7 @@ describe('SC-14/SC-15: план-фильтр', () => {
   let plan;
 
   beforeEach(() => {
-    plan = planService.createPlan(USER_ID, { title: 'Мой план' });
+    plan = planService.createGoal(USER_ID, { title: 'Мой план' });
   });
 
   test('SC-14: tf_set_plan_N устанавливает filter.planId', async () => {
