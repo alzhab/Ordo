@@ -65,51 +65,111 @@ async function handleMorningForDate(ctx, date) {
 
   const planned = getTasksByPlannedDate(userId, date);
 
-  let suggestions = [];
+  let aiSuggestions = [];
   try {
     const items = await getMorningPlan(userId, date);
-    suggestions = items
-      .map(({ id, reason }) => {
-        const t = getTaskById(id);
-        return t ? { task: t, reason } : null;
-      })
+    aiSuggestions = items
+      .map(({ id, reason }) => getTaskById(id) ? { id, reason } : null)
       .filter(Boolean);
   } catch (e) {
-    console.error('[morning]', e.message);
-  }
-
-  const dateLabel = formatDateLabel(date);
-  const lines = [`📅 *План на ${dateLabel}*\n`];
-
-  if (planned.length) {
-    lines.push('*Запланировано:*');
-    planned.forEach((t, i) => {
-      lines.push(`${i + 1}. ${t.status === 'done' ? '✅' : '☐'} ${t.title}`);
-    });
-  } else {
-    lines.push('_Пока ничего не запланировано._');
-  }
-
-  if (suggestions.length) {
-    lines.push('\n*AI предлагает добавить:*');
-    suggestions.forEach(({ task, reason }, i) => {
-      lines.push(`${planned.length + i + 1}. *${task.title}*\n   → ${reason}`);
-    });
+    console.error('[plan]', e.message);
   }
 
   logNotification(userId, 'morning');
 
-  const addButtons = suggestions.map(({ task }) =>
-    [Markup.button.callback(`➕ ${task.title}`, `mplan_add_${date}_${task.id}`)]
-  );
+  const state = pendingTasks.get(userId) ?? {};
+  state.planData = {
+    date,
+    plannedIds:  planned.map(t => t.id),
+    suggestions: aiSuggestions,
+  };
+  pendingTasks.set(userId, state);
 
-  await ctx.editMessageText(lines.join('\n'), {
+  await renderPlanSummary(ctx, userId);
+}
+
+async function renderPlanSummary(ctx, userId) {
+  const { planData } = pendingTasks.get(userId) ?? {};
+  if (!planData) return;
+  const { date, plannedIds, suggestions } = planData;
+  const dateLabel = formatDateLabel(date);
+
+  const lines   = [`📅 *План на ${dateLabel}*\n`];
+  const buttons = [];
+
+  if (plannedIds.length) {
+    lines.push(`✅ Запланировано: *${plannedIds.length}*`);
+    buttons.push([Markup.button.callback(`📋 Запланировано (${plannedIds.length})`, 'plan_open_planned')]);
+  } else {
+    lines.push('_Ничего не запланировано._');
+  }
+
+  if (suggestions.length) {
+    lines.push(`🤖 Рекомендует AI: *${suggestions.length}*`);
+    buttons.push([Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions')]);
+  }
+
+  await safeEdit(ctx, lines.join('\n'), {
     parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      ...addButtons,
-      [Markup.button.callback('✅ Сохранить план', `mplan_save_${date}`)],
-    ]),
+    ...Markup.inlineKeyboard(buttons),
   });
+}
+
+async function renderPlanSlider(ctx, userId) {
+  const state = pendingTasks.get(userId);
+  if (!state?.planSlider || !state?.planData) return;
+  const { category, index } = state.planSlider;
+  const { date, plannedIds, suggestions } = state.planData;
+  const nav = [Markup.button.callback('⏭ Пропустить', 'plan_skip'), Markup.button.callback('◀️ К плану', 'plan_back')];
+
+  if (category === 'planned') {
+    if (index >= plannedIds.length) {
+      return safeEdit(ctx, '✅ *Запланировано* — просмотрено!', {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+      });
+    }
+    const task = getTaskById(plannedIds[index]);
+    if (!task || task.status === 'deleted') {
+      state.planSlider.index++;
+      pendingTasks.set(userId, state);
+      return renderPlanSlider(ctx, userId);
+    }
+    const counter   = `_${index + 1} из ${plannedIds.length}_`;
+    const statusIcon = task.status === 'done' ? '✅' : '☐';
+    await safeEdit(ctx, `${statusIcon} *${task.title}*\n\n${counter}`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Сделал', `plan_done_${task.id}`), Markup.button.callback('📅 На завтра', `plan_tomorrow_${task.id}`)],
+        [Markup.button.callback('❌ Убрать из плана', `plan_unplan_${task.id}`)],
+        nav,
+      ]),
+    });
+
+  } else {
+    // suggestions
+    if (index >= suggestions.length) {
+      return safeEdit(ctx, '✅ *Рекомендации* — просмотрены!', {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+      });
+    }
+    const { id, reason } = suggestions[index];
+    const task = getTaskById(id);
+    if (!task || task.status === 'deleted') {
+      state.planSlider.index++;
+      pendingTasks.set(userId, state);
+      return renderPlanSlider(ctx, userId);
+    }
+    const counter = `_${index + 1} из ${suggestions.length}_`;
+    await safeEdit(ctx, `🤖 *${task.title}*\n_→ ${reason}_\n\n${counter}`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('➕ Добавить в план', `plan_add_${date}_${task.id}`)],
+        nav,
+      ]),
+    });
+  }
 }
 
 // ─── /review — сводная карточка ──────────────────────────────
@@ -313,22 +373,82 @@ function register(bot) {
     await handleMorningForDate(ctx, date);
   });
 
-  // Morning — добавить задачу в план на дату
-  bot.action(/^mplan_add_(\d{4}-\d{2}-\d{2})_(\d+)$/, async (ctx) => {
-    const date   = ctx.match[1];
-    const taskId = parseInt(ctx.match[2]);
-    getUser(ctx);
-    await ctx.answerCbQuery('Добавлено в план');
-    updateTask(taskId, { planned_for: date });
-    await handleMorningForDate(ctx, date);
+  // Plan — открыть слайдер категории
+  bot.action(/^plan_open_(planned|suggestions)$/, async (ctx) => {
+    const category = ctx.match[1];
+    const userId   = getUser(ctx);
+    const state    = pendingTasks.get(userId) ?? {};
+    const isEmpty  = category === 'planned'
+      ? !state.planData?.plannedIds?.length
+      : !state.planData?.suggestions?.length;
+    if (isEmpty) return ctx.answerCbQuery('Задач нет');
+    state.planSlider = { category, index: 0 };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSlider(ctx, userId);
   });
 
-  // Morning — сохранить план
-  bot.action(/^mplan_save_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
-    const date = ctx.match[1];
-    await ctx.answerCbQuery('План сохранён ✅');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    ctx.reply(`💪 План на ${formatDateLabel(date)} сохранён. Удачного дня!`);
+  // Plan — вернуться к сводке (обновляем запланированные из БД, AI-рекомендации сохраняем)
+  bot.action('plan_back', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planData) return ctx.answerCbQuery('Сессия устарела');
+    delete state.planSlider;
+    const planned = getTasksByPlannedDate(userId, state.planData.date);
+    state.planData.plannedIds = planned.map(t => t.id);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSummary(ctx, userId);
+  });
+
+  // Plan — пропустить текущую задачу
+  bot.action('plan_skip', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planSlider) return ctx.answerCbQuery();
+    state.planSlider.index++;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSlider(ctx, userId);
+  });
+
+  // Plan — действия над задачей
+  function planAction(fn, toast) {
+    return async (ctx) => {
+      const userId = getUser(ctx);
+      const id     = parseInt(ctx.match[1]);
+      fn(id, userId);
+      await ctx.answerCbQuery(toast);
+      const state = pendingTasks.get(userId);
+      if (state?.planSlider) {
+        state.planSlider.index++;
+        pendingTasks.set(userId, state);
+        await renderPlanSlider(ctx, userId);
+      }
+    };
+  }
+
+  bot.action(/^plan_done_(\d+)$/,    planAction((id, uid) => updateTask(id, { status: 'done' }, uid),       '✅ Готово'));
+  bot.action(/^plan_tomorrow_(\d+)$/, planAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid), '📅 На завтра'));
+  bot.action(/^plan_unplan_(\d+)$/,  planAction((id, uid) => updateTask(id, { planned_for: null }, uid),    '❌ Убрано из плана'));
+
+  // Plan — добавить рекомендацию в план (обновляет и переходит к следующей)
+  bot.action(/^plan_add_(\d{4}-\d{2}-\d{2})_(\d+)$/, async (ctx) => {
+    const date   = ctx.match[1];
+    const taskId = parseInt(ctx.match[2]);
+    const userId = getUser(ctx);
+    updateTask(taskId, { planned_for: date }, userId);
+    await ctx.answerCbQuery('➕ Добавлено в план');
+    const state = pendingTasks.get(userId);
+    if (state?.planSlider) {
+      // Обновляем список запланированных и убираем из suggestions
+      state.planData.suggestions = state.planData.suggestions.filter(s => s.id !== taskId);
+      const planned = getTasksByPlannedDate(userId, date);
+      state.planData.plannedIds = planned.map(t => t.id);
+      // Не смещаем index — следующая рекомендация сдвинется на то же место
+      pendingTasks.set(userId, state);
+      await renderPlanSlider(ctx, userId);
+    }
   });
 
   // Review — открыть слайдер категории
