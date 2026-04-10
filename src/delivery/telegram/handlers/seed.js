@@ -4,17 +4,11 @@
 
 const { getUser } = require('../../../shared/helpers');
 const { createTask } = require('../../../application/tasks');
-const { getCategoryByName, createCategory } = require('../../../application/categories');
+const { getCategoryByName } = require('../../../application/categories');
 const { createSubtasks } = require('../../../application/subtasks');
 const db = require('../../../infrastructure/db/connection');
 
 const SEED_CATEGORY = '🧪 Тест';
-
-function getSeedCategoryId(userId) {
-  let cat = getCategoryByName(userId, SEED_CATEGORY);
-  if (!cat) cat = createCategory(userId, SEED_CATEGORY);
-  return cat.id;
-}
 
 function daysAgo(n) {
   const d = new Date();
@@ -30,34 +24,34 @@ function daysFromNow(n) {
 
 async function handleSeed(ctx) {
   const userId = getUser(ctx);
-  const catId  = getSeedCategoryId(userId);
   const today  = daysFromNow(0);
+  const cat    = SEED_CATEGORY;
   const msg    = await ctx.reply('⏳ Создаю тестовые задачи...');
 
   const tasks = [
     // Inbox — todo без даты, только что создана
-    { title: 'Записаться к стоматологу', status: 'todo', category_id: catId },
+    { title: 'Записаться к стоматологу', status: 'todo', category: cat },
 
     // Inbox — todo без даты, создана 5 дней назад (поднимется в /review)
-    { title: 'Разобрать шкаф', status: 'todo', category_id: catId, _created_ago: 5 },
+    { title: 'Разобрать шкаф', status: 'todo', category: cat, _created_ago: 5 },
 
     // В плане на сегодня
-    { title: 'Написать отчёт за неделю', status: 'todo', planned_for: today, category_id: catId },
+    { title: 'Написать отчёт за неделю', status: 'todo', planned_for: today, category: cat },
 
     // В плане на завтра
-    { title: 'Позвонить маме', status: 'todo', planned_for: daysFromNow(1), category_id: catId },
+    { title: 'Позвонить маме', status: 'todo', planned_for: daysFromNow(1), category: cat },
 
     // Waiting с истёкшей датой (поднимется в /review)
-    { title: 'Жду ответа от HR', status: 'waiting', waiting_reason: 'Ждал оффер', waiting_until: daysAgo(2), category_id: catId },
+    { title: 'Жду ответа от HR', status: 'waiting', waiting_reason: 'Ждал оффер', waiting_until: daysAgo(2), category: cat },
 
     // Waiting без даты, создана 4 дня назад (поднимется в /review)
-    { title: 'Договориться с подрядчиком', status: 'waiting', waiting_reason: 'Он должен перезвонить', category_id: catId, _created_ago: 4 },
+    { title: 'Договориться с подрядчиком', status: 'waiting', waiting_reason: 'Он должен перезвонить', category: cat, _created_ago: 4 },
 
     // Maybe, создана 10 дней назад (поднимется в /review)
-    { title: 'Выучить испанский', status: 'maybe', category_id: catId, _created_ago: 10 },
+    { title: 'Выучить испанский', status: 'maybe', category: cat, _created_ago: 10 },
 
     // Todo с подзадачами
-    { title: 'Подготовить презентацию', status: 'todo', category_id: catId, _subtasks: ['Собрать данные', 'Сделать слайды', 'Прорепетировать'] },
+    { title: 'Подготовить презентацию', status: 'todo', category: cat, _subtasks: ['Собрать данные', 'Сделать слайды', 'Прорепетировать'] },
   ];
 
   let created = 0;
@@ -91,8 +85,15 @@ async function handleSeed(ctx) {
 
 async function handleUnseed(ctx) {
   const userId = getUser(ctx);
-  const cat = getCategoryByName(userId, SEED_CATEGORY);
-  if (!cat) return ctx.reply('Тестовых задач нет.');
+
+  // Ищем все категории пользователя с нужным именем (диагностика)
+  const allCats = db.prepare('SELECT * FROM categories WHERE user_id = ?').all(userId);
+  const cat = allCats.find(c => c.name === SEED_CATEGORY);
+
+  if (!cat) {
+    const names = allCats.map(c => `"${c.name}"`).join(', ');
+    return ctx.reply(`Категория не найдена.\nКатегории в БД: ${names || 'нет'}`);
+  }
 
   const result = db.prepare(`
     UPDATE tasks SET status = 'deleted'
