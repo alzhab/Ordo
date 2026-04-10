@@ -120,7 +120,13 @@ async function renderPlanSlider(ctx, userId) {
   if (!state?.planSlider || !state?.planData) return;
   const { category, index } = state.planSlider;
   const { date, plannedIds, suggestions } = state.planData;
-  const nav = [Markup.button.callback('⏭ Пропустить', 'plan_skip'), Markup.button.callback('◀️ К плану', 'plan_back')];
+  const total = category === 'planned' ? plannedIds.length : suggestions.length;
+  const nav = [
+    Markup.button.callback('◀️', index > 0 ? 'plan_prev' : 'plan_noop'),
+    Markup.button.callback(`${index + 1}/${total}`, 'plan_noop'),
+    Markup.button.callback('▶️', 'plan_next'),
+    Markup.button.callback('📋 К плану', 'plan_back'),
+  ];
 
   if (category === 'planned') {
     if (index >= plannedIds.length) {
@@ -137,7 +143,7 @@ async function renderPlanSlider(ctx, userId) {
     }
     const counter   = `_${index + 1} из ${plannedIds.length}_`;
     const statusIcon = task.status === 'done' ? '✅' : '☐';
-    await safeEdit(ctx, `${statusIcon} *${task.title}*\n\n${counter}`, {
+    await safeEdit(ctx, `${statusIcon} *${task.title}*`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('✅ Сделал', `plan_done_${task.id}`), Markup.button.callback('📅 На завтра', `plan_tomorrow_${task.id}`)],
@@ -162,7 +168,7 @@ async function renderPlanSlider(ctx, userId) {
       return renderPlanSlider(ctx, userId);
     }
     const counter = `_${index + 1} из ${suggestions.length}_`;
-    await safeEdit(ctx, `🤖 *${task.title}*\n_→ ${reason}_\n\n${counter}`, {
+    await safeEdit(ctx, `🤖 *${task.title}*\n_→ ${reason}_`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('➕ Добавить в план', `plan_add_${date}_${task.id}`)],
@@ -247,41 +253,46 @@ async function renderReviewSlider(ctx, userId) {
 
   const age   = daysSince(task.updated_at);
   const ageStr = age > 0 ? ` _(${age} дн.)_` : '';
-  const counter = `_${index + 1} из ${taskIds.length}_`;
-  const nav = [Markup.button.callback('⏭ Пропустить', 'rv_skip'), Markup.button.callback('◀️ К списку', 'rv_back')];
+  const counter = ``;
+  const nav = [
+    Markup.button.callback('◀️', index > 0 ? 'rv_prev' : 'rv_noop'),
+    Markup.button.callback(`${index + 1}/${taskIds.length}`, 'rv_noop'),
+    Markup.button.callback('▶️', 'rv_next'),
+    Markup.button.callback('📋 К списку', 'rv_back'),
+  ];
 
   let text, buttons;
 
   if (category === 'unclosed') {
-    text = `📅 *${task.title}*\nБыло в плане на сегодня.\n\n${counter}`;
+    text = `📅 *${task.title}*\nБыло в плане на сегодня.`;
     buttons = [
       [Markup.button.callback('✅ Сделал', `rv_done_${task.id}`), Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
       nav,
     ];
   } else if (category === 'waiting' && task.waiting_until) {
-    text = `⏸ *${task.title}*${ageStr}\nСрок ожидания вышел.\n\n${counter}`;
+    text = `⏸ *${task.title}*${ageStr}\nСрок ожидания вышел.`;
     buttons = [
       [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
       [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
       nav,
     ];
   } else if (category === 'waiting') {
-    text = `⏸ *${task.title}*${ageStr}\nПора напомнить?\n\n${counter}`;
+    text = `⏸ *${task.title}*${ageStr}\nПора напомнить?`;
     buttons = [
       [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
       [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
       nav,
     ];
   } else if (category === 'inbox') {
-    text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?\n\n${counter}`;
+    text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?`;
     buttons = [
       [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('💭 В maybe', `rv_maybe_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
       nav,
     ];
   } else {
-    text = `💭 *${task.title}*${ageStr}\nВсё ещё думаешь об этом?\n\n${counter}`;
+    text = `💭 *${task.title}*${ageStr}\nВсё ещё думаешь об этом?`;
     buttons = [
       [Markup.button.callback('✅ Да, беру в работу', `rv_todo_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
@@ -401,8 +412,8 @@ function register(bot) {
     await renderPlanSummary(ctx, userId);
   });
 
-  // Plan — пропустить текущую задачу
-  bot.action('plan_skip', async (ctx) => {
+  // Plan — навигация по слайдеру
+  bot.action('plan_next', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state?.planSlider) return ctx.answerCbQuery();
@@ -411,6 +422,16 @@ function register(bot) {
     await ctx.answerCbQuery();
     await renderPlanSlider(ctx, userId);
   });
+  bot.action('plan_prev', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planSlider) return ctx.answerCbQuery();
+    state.planSlider.index = Math.max(0, state.planSlider.index - 1);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSlider(ctx, userId);
+  });
+  bot.action('plan_noop', ctx => ctx.answerCbQuery());
 
   // Plan — действия над задачей
   function planAction(fn, toast) {
@@ -474,8 +495,8 @@ function register(bot) {
     await renderReviewSummary(ctx, userId);
   });
 
-  // Review — пропустить текущую задачу
-  bot.action('rv_skip', async (ctx) => {
+  // Review — навигация по слайдеру
+  bot.action('rv_next', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state?.reviewSlider) return ctx.answerCbQuery();
@@ -484,6 +505,16 @@ function register(bot) {
     await ctx.answerCbQuery();
     await renderReviewSlider(ctx, userId);
   });
+  bot.action('rv_prev', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.reviewSlider) return ctx.answerCbQuery();
+    state.reviewSlider.index = Math.max(0, state.reviewSlider.index - 1);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewSlider(ctx, userId);
+  });
+  bot.action('rv_noop', ctx => ctx.answerCbQuery());
 
   // Review — действия над задачей (применяют + переходят к следующей)
   function rvAction(fn, toast) {
