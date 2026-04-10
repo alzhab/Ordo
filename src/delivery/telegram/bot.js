@@ -9,10 +9,10 @@ process.stderr.write = (chunk, ...args) => {
 };
 
 const { Telegraf, Markup } = require('telegraf');
-const { TELEGRAM_BOT_TOKEN } = require('../../config');
-const { getUser } = require('../../helpers');
+const { TELEGRAM_BOT_TOKEN } = require('../../shared/config');
+const { getUser } = require('../../shared/helpers');
 
-const { isConfigured: notionConfigured } = require('../../integrations/notion');
+const { isConfigured: notionConfigured } = require('../../infrastructure/integrations/notion');
 const { buildSettingsText, buildSettingsKeyboard } = require('./handlers/settings');
 
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
@@ -68,6 +68,7 @@ require('./handlers/goals').register(bot);
 require('./handlers/subtasks').register(bot);
 require('./handlers/settings').register(bot);
 require('./handlers/assistant').register(bot);
+require('./handlers/seed').register(bot);
 require('./handlers/intent').register(bot);
 
 // ─── Запуск ───────────────────────────────────────────────
