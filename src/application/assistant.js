@@ -158,37 +158,4 @@ function getReviewData(userId) {
   return { unclosed, waiting, inbox, doneToday };
 }
 
-// ─── Прогресс ─────────────────────────────────────────────────
-
-function getProgress(userId) {
-  const { timezone } = getSettings(userId);
-  const today = localNow(timezone);
-  const weekAgo = (() => {
-    const d = new Date(`${today}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 7);
-    return d.toISOString().slice(0, 10);
-  })();
-
-  const doneToday = db.prepare(`
-    SELECT COUNT(*) as cnt FROM tasks
-    WHERE user_id = ? AND status = 'done' AND date(updated_at) = ?
-  `).get(userId, today).cnt;
-
-  const doneWeek = db.prepare(`
-    SELECT COUNT(*) as cnt FROM tasks
-    WHERE user_id = ? AND status = 'done' AND date(updated_at) >= ?
-  `).get(userId, weekAgo).cnt;
-
-  const plans = getGoalsWithProgress(userId);
-
-  const stale = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status NOT IN ('done', 'deleted')
-    AND date(updated_at) <= date('now', '-7 days')
-    ORDER BY updated_at ASC LIMIT 3
-  `).all(userId);
-
-  return { doneToday, doneWeek, plans, stale };
-}
-
-module.exports = { getPlanRecommendations, getReviewData, getProgress };
+module.exports = { getPlanRecommendations, getReviewData };

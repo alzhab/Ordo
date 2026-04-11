@@ -204,11 +204,10 @@ function getDueReminders() {
 
 // Повторяющиеся задачи у которых подошло время уведомления.
 // Логика идентична старому recurringRepository.getDueNow.
-function getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth) {
-  const tasks = db.prepare(`
-    SELECT * FROM tasks
-    WHERE is_recurring = 1 AND status != 'deleted' AND planned_for <= date('now')
-  `).all();
+function getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth, userId = null) {
+  const tasks = userId
+    ? db.prepare(`SELECT * FROM tasks WHERE is_recurring = 1 AND status != 'deleted' AND planned_for <= date('now') AND user_id = ?`).all(userId)
+    : db.prepare(`SELECT * FROM tasks WHERE is_recurring = 1 AND status != 'deleted' AND planned_for <= date('now')`).all();
 
   return tasks.filter(task => {
     if (!task.recur_time) return false;

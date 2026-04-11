@@ -1,8 +1,8 @@
 const cron = require('node-cron');
 const db = require('../../infrastructure/db/connection');
-const { wasNotifiedToday, isQuietMode } = require('../../application/settings');
+const { wasNotifiedToday, logNotification, getRecurringDueNow, getDueReminders } = require('../../application/notifications');
+const { isQuietMode } = require('../../application/settings');
 const { handlePlan, handleReview } = require('./handlers/assistant');
-const { getRecurringDueNow, getDueReminders } = require('../../application/notifications');
 const { updateTask, advanceRecurring } = require('../../application/tasks');
 
 // Получить всех активных пользователей с их настройками
@@ -94,19 +94,22 @@ function start(bot) {
       console.error('[scheduler] reminders error:', e.message);
     }
 
-    // Повторяющиеся задачи — проверяем один раз для всех
+    // Повторяющиеся задачи — проверяем для каждого пользователя по его timezone
     try {
-      const now = new Date();
-      const currentHHMM = getCurrentHHMM('Asia/Oral');
-      const currentDay = now.getDay();
-      const currentDayOfMonth = now.getDate();
-      const due = getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth);
-      for (const r of due) {
-        const text = r.recur_remind_before > 0
-          ? `🔔 Напоминание: *${r.title}* через ${r.recur_remind_before} мин.`
-          : `🔔 *${r.title}*`;
-        await bot.telegram.sendMessage(r.user_id, text, { parse_mode: 'Markdown' });
-        advanceRecurring(r.id);
+      for (const user of users) {
+        const tz = user.timezone || 'Asia/Oral';
+        const hhmm = getCurrentHHMM(tz);
+        const localNow = new Date(new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(new Date()));
+        const due = getRecurringDueNow(hhmm, localNow.getDay(), localNow.getDate(), user.id);
+        for (const r of due) {
+          const text = r.recur_remind_before > 0
+            ? `🔔 Напоминание: *${r.title}* через ${r.recur_remind_before} мин.`
+            : `🔔 *${r.title}*`;
+          await bot.telegram.sendMessage(r.user_id, text, { parse_mode: 'Markdown' });
+          advanceRecurring(r.id);
+        }
       }
     } catch (e) {
       console.error('[scheduler] recurring error:', e.message);
@@ -127,6 +130,7 @@ function start(bot) {
         ) {
           const ctx = makeFakeCtx(bot, user.id);
           await handlePlan(ctx);
+          logNotification(user.id, 'plan');
         }
 
         // /review
@@ -137,6 +141,7 @@ function start(bot) {
         ) {
           const ctx = makeFakeCtx(bot, user.id);
           await handleReview(ctx);
+          logNotification(user.id, 'review');
         }
       } catch (e) {
         console.error(`[scheduler] user ${user.id}:`, e.message);

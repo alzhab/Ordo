@@ -1,7 +1,6 @@
 const { Markup } = require('telegraf');
 const { getUser } = require('../../../shared/helpers');
-const { getPlanRecommendations, getReviewData, getProgress } = require('../../../application/assistant');
-const { logNotification, wasNotifiedToday } = require('../../../application/notifications');
+const { getPlanRecommendations, getReviewData } = require('../../../application/assistant');
 const { isQuietMode } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate, snoozeTask } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
@@ -14,12 +13,6 @@ function daysSince(dateStr) {
   if (!dateStr) return 0;
   const d = new Date(dateStr.slice(0, 10));
   return Math.floor((Date.now() - d.getTime()) / 86400000);
-}
-
-function progressBar(done, total) {
-  if (!total) return '░░░░░░░░';
-  const filled = Math.round((done / total) * 8);
-  return '█'.repeat(filled) + '░'.repeat(8 - filled);
 }
 
 // ─── Calendar picker ─────────────────────────────────────────
@@ -103,8 +96,11 @@ async function handlePlan(ctx) {
 
 async function handlePlanForDate(ctx, date) {
   const userId = ctx.from.id;
+  const loadingText = `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`;
   if (ctx.callbackQuery) {
-    await safeEdit(ctx, `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`, { parse_mode: 'Markdown' });
+    await safeEdit(ctx, loadingText, { parse_mode: 'Markdown' });
+  } else {
+    ctx._loadingMsg = await ctx.reply(loadingText, { parse_mode: 'Markdown' });
   }
 
   const planned = getTasksByPlannedDate(userId, date);
@@ -119,13 +115,12 @@ async function handlePlanForDate(ctx, date) {
     console.error('[plan]', e.message);
   }
 
-  logNotification(userId, 'plan');
-
   const state = pendingTasks.get(userId) ?? {};
   state.planData = {
     date,
     plannedIds:  planned.map(t => t.id),
     suggestions: aiSuggestions,
+    loadingMsgId: ctx._loadingMsg?.message_id ?? null,
   };
   pendingTasks.set(userId, state);
 
@@ -135,7 +130,7 @@ async function handlePlanForDate(ctx, date) {
 async function renderPlanSummary(ctx, userId) {
   const { planData } = pendingTasks.get(userId) ?? {};
   if (!planData) return;
-  const { date, plannedIds, suggestions } = planData;
+  const { date, plannedIds, suggestions, loadingMsgId } = planData;
   const dateLabel = formatDateLabel(date);
 
   const lines   = [`📅 *План на ${dateLabel}*\n`];
@@ -155,10 +150,13 @@ async function renderPlanSummary(ctx, userId) {
 
   buttons.push([Markup.button.callback('📅 Другой день', 'plan_pick_date')]);
 
-  await safeEdit(ctx, lines.join('\n'), {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard(buttons),
-  });
+  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) };
+  if (loadingMsgId) {
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, null, lines.join('\n'), opts)
+      .catch(() => ctx.reply(lines.join('\n'), opts));
+  } else {
+    await safeEdit(ctx, lines.join('\n'), opts);
+  }
 }
 
 async function renderPlanSlider(ctx, userId) {
@@ -344,40 +342,7 @@ async function renderReviewSlider(ctx, userId) {
 
 async function handleReview(ctx) {
   const userId = getUser(ctx);
-  logNotification(userId, 'review');
   await renderReviewSummary(ctx, userId, true);
-}
-
-// ─── /progress ───────────────────────────────────────────────
-
-async function handleProgress(ctx) {
-  getUser(ctx);
-  const userId = ctx.from.id;
-
-  const { doneToday, doneWeek, plans, stale } = getProgress(userId);
-
-  const lines = ['📊 *Прогресс*\n'];
-  lines.push(`✅ Сегодня: ${doneToday} задач`);
-  lines.push(`✅ За неделю: ${doneWeek} задач`);
-
-  if (plans.length) {
-    lines.push('');
-    for (const p of plans) {
-      const bar = progressBar(p.done_count ?? 0, p.total_count ?? 0);
-      lines.push(`${p.title}  ${bar}  ${p.done_count ?? 0}/${p.total_count ?? 0}`);
-    }
-  }
-
-  if (stale.length) {
-    lines.push('');
-    lines.push('⚠️ *Давно без движения:*');
-    stale.forEach(t => {
-      const age = daysSince(t.updated_at);
-      lines.push(`• ${t.title} (${age} дн.)`);
-    });
-  }
-
-  await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
 }
 
 // ─── Кнопки ──────────────────────────────────────────────────
@@ -462,10 +427,19 @@ function register(bot) {
   bot.action(/^plan_open_(planned|suggestions)$/, async (ctx) => {
     const category = ctx.match[1];
     const userId   = getUser(ctx);
-    const state    = pendingTasks.get(userId) ?? {};
-    const isEmpty  = category === 'planned'
-      ? !state.planData?.plannedIds?.length
-      : !state.planData?.suggestions?.length;
+    let state = pendingTasks.get(userId) ?? {};
+
+    // State потерян (перезапуск бота) — восстанавливаем запланированные из БД
+    if (!state.planData) {
+      const today = addDays(0);
+      const planned = getTasksByPlannedDate(userId, today);
+      state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: [] };
+      pendingTasks.set(userId, state);
+    }
+
+    const isEmpty = category === 'planned'
+      ? !state.planData.plannedIds?.length
+      : !state.planData.suggestions?.length;
     if (isEmpty) return ctx.answerCbQuery('Задач нет');
     state.planSlider = { category, index: 0 };
     pendingTasks.set(userId, state);
@@ -550,8 +524,20 @@ function register(bot) {
   bot.action(/^rv_open_(unclosed|waiting|inbox)$/, async (ctx) => {
     const category = ctx.match[1];
     const userId   = getUser(ctx);
-    const state    = pendingTasks.get(userId) ?? {};
-    const taskIds  = state.reviewData?.[category] ?? [];
+    let state = pendingTasks.get(userId) ?? {};
+
+    // State потерян (перезапуск бота) — перезагружаем из БД
+    if (!state.reviewData) {
+      const data = getReviewData(userId);
+      state.reviewData = {
+        unclosed: data.unclosed.map(t => t.id),
+        waiting:  data.waiting.map(t => t.id),
+        inbox:    data.inbox.map(t => t.id),
+      };
+      pendingTasks.set(userId, state);
+    }
+
+    const taskIds = state.reviewData[category] ?? [];
     if (!taskIds.length) return ctx.answerCbQuery('Задач нет');
     state.reviewSlider = { taskIds, index: 0, category };
     pendingTasks.set(userId, state);
@@ -610,7 +596,12 @@ function register(bot) {
   bot.action(/^rv_todo_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'todo', waiting_reason: null, waiting_until: null }, uid), '▶️ Взято в работу'));
   bot.action(/^rv_snooze_(\d+)$/,  rvAction((id)      => snoozeTask(id),                                                        '⏭ Отложено на 3 дня'));
   bot.action(/^rv_del_(\d+)$/,     rvAction((id, uid) => deleteTask(id, uid),                                                   '🗑 Удалено'));
-  bot.action(/^rv_keep_(\d+)$/,    rvAction(() => {},                                                                           '⏸ Оставлено'));
+  bot.action(/^rv_keep_(\d+)$/, rvAction((id, uid) => {
+    const task = getTaskById(id);
+    // Если waiting_until истёк — сбрасываем его чтобы задача не появлялась каждый день
+    if (task?.waiting_until) updateTask(id, { waiting_until: null }, uid);
+    snoozeTask(id);
+  }, '⏸ Напомню через 3 дня'));
   bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                     '📅 На завтра'));
 
   // Recurring — удаление (soft delete задачи)
