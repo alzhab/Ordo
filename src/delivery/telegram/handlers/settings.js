@@ -7,33 +7,42 @@ const { getSyncErrors, clearSyncErrors } = require('../../../application/notific
 const { getSettings, getNotionEnabled, updateSettings } = require('../../../application/settings');
 
 function buildSettingsText(userId) {
-  const notionTasks = notionConfigured()
-    ? '✅ Notion задачи подключён'
-    : '❌ Notion задачи не настроен';
-  const notionPlans = isPlansConfigured()
-    ? '✅ Notion планы подключён'
-    : '❌ Notion планы не настроен';
-  const syncStatus = userId && notionConfigured()
-    ? (getNotionEnabled(userId) ? '\n🔔 Синхронизация: включена' : '\n🔕 Синхронизация: отключена')
-    : '';
-  return `⚙️ *Настройки*\n\n*Интеграции:*\n${notionTasks}\n${notionPlans}${syncStatus}`;
+  const s   = getSettings(userId);
+  const mt  = s.plan_time   ?? '09:00';
+  const et  = s.review_time ?? '21:00';
+  const mOn = s.plan_enabled   !== 0;
+  const rOn = s.review_enabled !== 0;
+  const cats = getCategories(userId);
+
+  return (
+    `⚙️ *Настройки*\n\n` +
+    `📋 /plan: *${mt}* — ${mOn ? 'включён' : 'выключен'}\n` +
+    `🔍 /review: *${et}* — ${rOn ? 'включён' : 'выключен'}\n` +
+    `📁 Категорий: *${cats.length}*`
+  );
 }
 
 function buildSettingsKeyboard(userId) {
-  const rows = [];
+  const s   = getSettings(userId);
+  const mOn = s.plan_enabled   !== 0;
+  const rOn = s.review_enabled !== 0;
+
+  const rows = [
+    [
+      Markup.button.callback('📋 Время плана',  'sn_mt_change'),
+      Markup.button.callback('🔍 Время разбора', 'sn_et_change'),
+    ],
+    [
+      Markup.button.callback(mOn ? '🔕 Выкл. план'  : '🔔 Вкл. план',   'sn_mtoggle'),
+      Markup.button.callback(rOn ? '🔕 Выкл. разбор' : '🔔 Вкл. разбор', 'sn_rtoggle'),
+    ],
+    [Markup.button.callback('📁 Категории', 'settings_categories')],
+  ];
+
   if (notionConfigured()) {
-    const syncEnabled = userId ? getNotionEnabled(userId) : true;
-    rows.push([Markup.button.callback(
-      syncEnabled ? '🔕 Отключить синхронизацию' : '🔔 Включить синхронизацию',
-      'settings_notion_toggle'
-    )]);
-    if (syncEnabled) {
-      rows.push([Markup.button.callback('🔄 Синхронизировать задачи → Notion', 'notion_sync_all')]);
-    }
-    rows.push([Markup.button.callback('⚠️ Ошибки синхронизации', 'settings_sync_errors')]);
+    rows.push([Markup.button.callback('🔌 Интеграции', 'settings_integrations')]);
   }
-  rows.push([Markup.button.callback('🕐 Уведомления', 'settings_notifications')]);
-  rows.push([Markup.button.callback('📁 Категории', 'settings_categories')]);
+
   return Markup.inlineKeyboard(rows);
 }
 
@@ -45,7 +54,7 @@ function register(bot) {
     await ctx.answerCbQuery();
     if (errors.length === 0) {
       return safeEdit(ctx, '✅ Ошибок синхронизации нет.', {
-        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', 'settings_back')]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', 'settings_integrations')]]),
       });
     }
     const lines = errors.map(e => `• \`${e.created_at.slice(5, 16)}\` ${e.message}`).join('\n');
@@ -53,7 +62,7 @@ function register(bot) {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🗑 Очистить', 'settings_errors_clear')],
-        [Markup.button.callback('◀️ Назад', 'settings_back')],
+        [Markup.button.callback('◀️ Назад', 'settings_integrations')],
       ]),
     });
   });
@@ -62,9 +71,7 @@ function register(bot) {
     const userId = getUser(ctx);
     clearSyncErrors(userId);
     await ctx.answerCbQuery('🗑 Очищено');
-    await safeEdit(ctx, '✅ Ошибки синхронизации очищены.', {
-      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', 'settings_back')]]),
-    });
+    await renderIntegrationsSettings(ctx, userId, true);
   });
 
   bot.action('settings_notion_toggle', async (ctx) => {
@@ -72,7 +79,7 @@ function register(bot) {
     const enabled = getNotionEnabled(userId);
     updateSettings(userId, { notion_enabled: enabled ? 0 : 1 });
     await ctx.answerCbQuery(enabled ? '🔕 Синхронизация отключена' : '🔔 Синхронизация включена');
-    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
+    await renderIntegrationsSettings(ctx, userId, true);
   });
 
   bot.action('settings_back', async (ctx) => {
@@ -81,11 +88,18 @@ function register(bot) {
     await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   });
 
-  // Уведомления — открыть
+  // Интеграции (Notion)
+  bot.action('settings_integrations', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await renderIntegrationsSettings(ctx, userId, true);
+  });
+
+  // Уведомления — открыть (для обратной совместимости с pending-кнопками)
   bot.action('settings_notifications', async (ctx) => {
     const userId = getUser(ctx);
     await ctx.answerCbQuery();
-    await renderNotificationsSettings(ctx, userId, true);
+    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   });
 
   // /plan — запросить время текстом
@@ -97,7 +111,7 @@ function register(bot) {
     await ctx.answerCbQuery();
     await safeEdit(ctx, '📋 *В какое время присылать /plan?*\n\nНапример: `9:00` или `в 8 утра`', {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('Отмена', 'settings_notifications')]]),
+      ...Markup.inlineKeyboard([[Markup.button.callback('Отмена', 'settings_back')]]),
     });
   });
 
@@ -110,7 +124,7 @@ function register(bot) {
     await ctx.answerCbQuery();
     await safeEdit(ctx, '🔍 *В какое время присылать /review?*\n\nНапример: `21:00` или `в 9 вечера`', {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('Отмена', 'settings_notifications')]]),
+      ...Markup.inlineKeyboard([[Markup.button.callback('Отмена', 'settings_back')]]),
     });
   });
 
@@ -121,7 +135,7 @@ function register(bot) {
     const next = plan_enabled === 0 ? 1 : 0;
     updateSettings(userId, { plan_enabled: next });
     await ctx.answerCbQuery(next ? '🔔 План включён' : '🔕 План выключен');
-    await renderNotificationsSettings(ctx, userId, true);
+    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   });
 
   // Переключить /review
@@ -131,7 +145,7 @@ function register(bot) {
     const next = review_enabled === 0 ? 1 : 0;
     updateSettings(userId, { review_enabled: next });
     await ctx.answerCbQuery(next ? '🔔 Разбор включён' : '🔕 Разбор выключен');
-    await renderNotificationsSettings(ctx, userId, true);
+    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   });
 
   // Вход в раздел категорий
@@ -191,31 +205,30 @@ function register(bot) {
   });
 }
 
-// ─── Уведомления ─────────────────────────────────────────────
+// ─── Интеграции (Notion) ──────────────────────────────────────
 
-function renderNotificationsSettings(ctx, userId, edit = false) {
-  const s = getSettings(userId);
-  const mt = s.plan_time ?? '09:00';
-  const et = s.review_time ?? '21:00';
-  const mOn = s.plan_enabled !== 0;
-  const rOn = s.review_enabled  !== 0;
+function renderIntegrationsSettings(ctx, userId, edit = false) {
+  const syncEnabled = getNotionEnabled(userId);
+  const notionTasks = notionConfigured() ? '✅ Notion задачи' : '❌ Notion задачи не настроен';
+  const notionPlans = isPlansConfigured() ? '✅ Notion планы'  : '❌ Notion планы не настроены';
 
   const text =
-    `🕐 *Уведомления*\n\n` +
-    `📋 /plan: *${mt}* — ${mOn ? 'включён' : 'выключен'}\n` +
-    `🔍 /review: *${et}* — ${rOn ? 'включён' : 'выключен'}`;
+    `🔌 *Интеграции*\n\n` +
+    `${notionTasks}\n${notionPlans}\n` +
+    `Синхронизация: ${syncEnabled ? 'включена' : 'выключена'}`;
 
-  const rows = [
-    [
-      Markup.button.callback(`📋 Изменить время плана`, 'sn_mt_change'),
-      Markup.button.callback(`🔍 Изменить время разбора`, 'sn_et_change'),
-    ],
-    [
-      Markup.button.callback(mOn ? '🔕 Выкл. план'  : '🔔 Вкл. план',   'sn_mtoggle'),
-      Markup.button.callback(rOn ? '🔕 Выкл. разбор' : '🔔 Вкл. разбор', 'sn_rtoggle'),
-    ],
-    [Markup.button.callback('◀️ Назад', 'settings_back')],
-  ];
+  const rows = [];
+  if (notionConfigured()) {
+    rows.push([Markup.button.callback(
+      syncEnabled ? '🔕 Отключить синхронизацию' : '🔔 Включить синхронизацию',
+      'settings_notion_toggle'
+    )]);
+    if (syncEnabled) {
+      rows.push([Markup.button.callback('🔄 Синхронизировать задачи → Notion', 'notion_sync_all')]);
+    }
+    rows.push([Markup.button.callback('⚠️ Ошибки синхронизации', 'settings_sync_errors')]);
+  }
+  rows.push([Markup.button.callback('◀️ Назад', 'settings_back')]);
 
   const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) };
   return edit ? safeEdit(ctx, text, opts) : ctx.reply(text, opts);
@@ -230,4 +243,4 @@ async function renderCategoryList(ctx, userId, edit = false) {
   return edit ? ctx.editMessageText(text, opts) : ctx.reply(text, opts);
 }
 
-module.exports = { register, buildSettingsText, buildSettingsKeyboard, renderNotificationsSettings };
+module.exports = { register, buildSettingsText, buildSettingsKeyboard, renderIntegrationsSettings };

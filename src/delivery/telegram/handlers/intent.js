@@ -376,8 +376,8 @@ async function handleText(ctx, text) {
     updateSettings(userId, { [field]: time });
     const label = field === 'plan_time' ? '📋 /plan' : '🔍 /review';
     await ctx.reply(`✅ ${label} теперь в *${time}*`, { parse_mode: 'Markdown' });
-    const { renderNotificationsSettings } = require('./settings');
-    return renderNotificationsSettings(ctx, userId, false);
+    const { buildSettingsText, buildSettingsKeyboard } = require('./settings');
+    return ctx.reply(buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   }
 
   // Создание категории через текст
