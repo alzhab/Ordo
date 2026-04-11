@@ -1,5 +1,5 @@
 const taskRepo = require('../infrastructure/db/repositories/taskRepository');
-const { getCategoryByName, createCategory, PRIORITY_MAP } = require('../infrastructure/db/repositories/categoryRepository');
+const { getCategoryByName, createCategory } = require('../infrastructure/db/repositories/categoryRepository');
 const { getGoalByTitle } = require('../infrastructure/db/repositories/goalRepository');
 const subtaskRepo = require('../infrastructure/db/repositories/subtaskRepository');
 const notion = require('../infrastructure/integrations/notion');
@@ -31,7 +31,6 @@ function createTask(userId, parsed) {
     ...parsed,
     category_id: categoryId,
     goal_id: goalId,
-    priority: PRIORITY_MAP[parsed.priority] ?? null,
   });
 }
 

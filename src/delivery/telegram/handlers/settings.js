@@ -4,7 +4,7 @@ const { pendingTasks } = require('../../../shared/state');
 const { getCategories, createCategory, getCategoryTaskCount, deleteCategory } = require('../../../application/categories');
 const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
-const { getNotionEnabled, updateSettings } = require('../../../application/settings');
+const { getSettings, getNotionEnabled, updateSettings } = require('../../../application/settings');
 
 function buildSettingsText(userId) {
   const notionTasks = notionConfigured()
@@ -32,6 +32,7 @@ function buildSettingsKeyboard(userId) {
     }
     rows.push([Markup.button.callback('⚠️ Ошибки синхронизации', 'settings_sync_errors')]);
   }
+  rows.push([Markup.button.callback('🕐 Уведомления', 'settings_notifications')]);
   rows.push([Markup.button.callback('📁 Категории', 'settings_categories')]);
   return Markup.inlineKeyboard(rows);
 }
@@ -78,6 +79,53 @@ function register(bot) {
     const userId = getUser(ctx);
     await ctx.answerCbQuery();
     await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
+  });
+
+  // Уведомления — открыть
+  bot.action('settings_notifications', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await renderNotificationsSettings(ctx, userId, true);
+  });
+
+  // Утренний план — выбор времени (формат callback: sn_mt_0900)
+  bot.action(/^sn_mt_(\d{4})$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const raw  = ctx.match[1];
+    const time = `${raw.slice(0, 2)}:${raw.slice(2)}`;
+    updateSettings(userId, { morning_time: time });
+    await ctx.answerCbQuery(`🌅 Утренний план: ${time}`);
+    await renderNotificationsSettings(ctx, userId, true);
+  });
+
+  // Вечерний разбор — выбор времени
+  bot.action(/^sn_et_(\d{4})$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const raw  = ctx.match[1];
+    const time = `${raw.slice(0, 2)}:${raw.slice(2)}`;
+    updateSettings(userId, { evening_time: time });
+    await ctx.answerCbQuery(`🌙 Вечерний разбор: ${time}`);
+    await renderNotificationsSettings(ctx, userId, true);
+  });
+
+  // Переключить утренний план
+  bot.action('sn_mtoggle', async (ctx) => {
+    const userId = getUser(ctx);
+    const { morning_enabled } = getSettings(userId);
+    const next = morning_enabled === 0 ? 1 : 0;
+    updateSettings(userId, { morning_enabled: next });
+    await ctx.answerCbQuery(next ? '🔔 Утренний план включён' : '🔕 Утренний план выключен');
+    await renderNotificationsSettings(ctx, userId, true);
+  });
+
+  // Переключить вечерний разбор
+  bot.action('sn_rtoggle', async (ctx) => {
+    const userId = getUser(ctx);
+    const { review_enabled } = getSettings(userId);
+    const next = review_enabled === 0 ? 1 : 0;
+    updateSettings(userId, { review_enabled: next });
+    await ctx.answerCbQuery(next ? '🔔 Вечерний разбор включён' : '🔕 Вечерний разбор выключен');
+    await renderNotificationsSettings(ctx, userId, true);
   });
 
   // Вход в раздел категорий
@@ -135,6 +183,40 @@ function register(bot) {
     await ctx.answerCbQuery('🗑 Удалено');
     await renderCategoryList(ctx, userId, true);
   });
+}
+
+// ─── Уведомления ─────────────────────────────────────────────
+
+const MORNING_TIMES = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'];
+const EVENING_TIMES = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
+
+function renderNotificationsSettings(ctx, userId, edit = false) {
+  const s = getSettings(userId);
+  const mt = s.morning_time ?? '09:00';
+  const et = s.evening_time ?? '21:00';
+  const mOn = s.morning_enabled !== 0;
+  const rOn = s.review_enabled  !== 0;
+
+  const text =
+    `🕐 *Уведомления*\n\n` +
+    `🌅 Утренний план: *${mt}* — ${mOn ? 'включён' : 'выключен'}\n` +
+    `🌙 Вечерний разбор: *${et}* — ${rOn ? 'включён' : 'выключен'}`;
+
+  const timeBtn = (time, current, prefix) =>
+    Markup.button.callback(time === current ? `· ${time} ·` : time, `${prefix}${time.replace(':', '')}`);
+
+  const rows = [
+    MORNING_TIMES.map(t => timeBtn(t, mt, 'sn_mt_')),
+    EVENING_TIMES.map(t => timeBtn(t, et, 'sn_et_')),
+    [
+      Markup.button.callback(mOn ? '🔕 Выкл. утренний' : '🔔 Вкл. утренний', 'sn_mtoggle'),
+      Markup.button.callback(rOn ? '🔕 Выкл. разбор'  : '🔔 Вкл. разбор',   'sn_rtoggle'),
+    ],
+    [Markup.button.callback('◀️ Назад', 'settings_back')],
+  ];
+
+  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) };
+  return edit ? safeEdit(ctx, text, opts) : ctx.reply(text, opts);
 }
 
 async function renderCategoryList(ctx, userId, edit = false) {

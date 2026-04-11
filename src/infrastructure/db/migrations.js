@@ -144,14 +144,13 @@ try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAU
 // Переименование: due_date → planned_for (семантика изменилась: не дедлайн, а дата плана)
 try { db.exec(`ALTER TABLE tasks RENAME COLUMN due_date TO planned_for`); } catch {}
 
-// ─── Пересборка таблицы tasks ────────────────────────────────
-// SQLite не поддерживает DROP CONSTRAINT через ALTER TABLE.
-// Старая таблица tasks имела FK на plans (plan_id), который нужно убрать.
-// Единственный способ — пересоздать таблицу с нуля и перенести данные.
-// Проверяем что пересборка нужна по наличию слова 'plans' в CREATE SQL.
+// ─── Пересборка таблицы tasks (без priority, без FK на plans) ───
+// SQLite не поддерживает DROP COLUMN/DROP CONSTRAINT через ALTER TABLE.
+// Пересоздаём таблицу если в её CREATE SQL есть 'plans' (старый FK) или 'priority'.
+// Проверка по двум условиям позволяет безопасно пропускать уже выполненную миграцию.
 try {
   const tasksDef = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'`).get();
-  if (tasksDef && tasksDef.sql.includes('plans')) {
+  if (tasksDef && (tasksDef.sql.includes('plans') || tasksDef.sql.includes('priority'))) {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       CREATE TABLE tasks_new (
@@ -160,7 +159,6 @@ try {
         title           TEXT    NOT NULL,
         description     TEXT,
         status          TEXT    NOT NULL DEFAULT 'todo',
-        priority        TEXT,
         category_id     INTEGER REFERENCES categories(id),
         goal_id         INTEGER REFERENCES goals(id),
         planned_for     TEXT,
@@ -173,11 +171,11 @@ try {
         updated_at      TEXT DEFAULT (datetime('now'))
       );
       INSERT INTO tasks_new
-        (id, user_id, title, description, status, priority, category_id,
+        (id, user_id, title, description, status, category_id,
          goal_id, planned_for, notion_page_id, waiting_reason, waiting_until,
          reminder_at, reminder_sent, created_at, updated_at)
       SELECT
-        id, user_id, title, description, status, priority, category_id,
+        id, user_id, title, description, status, category_id,
         goal_id, planned_for, notion_page_id, waiting_reason, waiting_until,
         reminder_at, reminder_sent, created_at, updated_at
       FROM tasks;
@@ -186,4 +184,4 @@ try {
     `);
     db.pragma('foreign_keys = ON');
   }
-} catch (e) { console.error('[db] tasks FK fix error:', e.message); }
+} catch (e) { console.error('[db] tasks rebuild error:', e.message); }

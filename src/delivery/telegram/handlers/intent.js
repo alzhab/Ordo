@@ -20,20 +20,18 @@ const {
   getGoalsWithProgress, getGoalById, getGoalByTitle, getTasksByGoal,
   archiveGoal, deleteGoal, createGoal,
 } = require('../../../application/goals');
-const { getCategoryNames, getCategoryByName, createCategory, getCategories, getCategoryTaskCount, deleteCategory, PRIORITY_MAP } = require('../../../application/categories');
+const { getCategoryNames, getCategoryByName, createCategory, getCategories, getCategoryTaskCount, deleteCategory } = require('../../../application/categories');
 const {
-  getSubtasks, createSubtask, createSubtasks, updateSubtask,
+  getSubtasks, createSubtasks, updateSubtask,
+  appendSubtaskWithNotion, editSubtaskTitleWithNotion,
 } = require('../../../application/subtasks');
-const {
-  isPlansConfigured,
-  appendSubtaskToNotion, updateSubtaskBlockTitle,
-} = require('../../../infrastructure/integrations/notion');
+const { isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const { syncNewGoalToNotion } = require('./goals');
 
 // ─── Одиночные действия над задачей ──────────────────────
 
 async function executeTaskAction(ctx, userId, task, actionObj) {
-  const { action, status, plan, category, date, priority } = actionObj;
+  const { action, status, plan, category, date } = actionObj;
   switch (action) {
     case 'update_status': {
       updateTask(task.id, { status }, userId);
@@ -66,11 +64,6 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
     case 'set_planned_for': {
       updateTask(task.id, { planned_for: date }, userId);
       return ctx.reply(`✅ *${task.title}* → 📅 *${date}*`, { parse_mode: 'Markdown' });
-    }
-    case 'set_priority': {
-      updateTask(task.id, { priority: PRIORITY_MAP[priority] ?? priority }, userId);
-      const icon = { Высокий: '🔴', Средний: '🟡', Низкий: '🟢' }[priority] ?? '';
-      return ctx.reply(`✅ *${task.title}* → приоритет ${icon} *${priority}*`, { parse_mode: 'Markdown' });
     }
     case 'set_waiting': {
       const { waiting_reason, waiting_until } = normalizeWaiting(actionObj.waiting_reason, actionObj.waiting_until);
@@ -108,7 +101,7 @@ async function handleManageTask(ctx, userId, parsed) {
     return executeTaskAction(ctx, userId, tasks[0], parsed);
   }
   const state = pendingTasks.get(userId) ?? {};
-  state.voiceAction = { action: parsed.action, status: parsed.status, plan: parsed.plan, category: parsed.category, date: parsed.date, priority: parsed.priority };
+  state.voiceAction = { action: parsed.action, status: parsed.status, plan: parsed.plan, category: parsed.category, date: parsed.date };
   pendingTasks.set(userId, state);
   const rows = tasks.slice(0, 8).map(t => [Markup.button.callback(t.title, `va_task_${t.id}`)]);
   rows.push([Markup.button.callback('❌ Отмена', 'cancel')]);
@@ -213,7 +206,6 @@ async function handleManageTasksBulk(ctx, userId, parsed) {
     status:   parsed.status,
     plan:     parsed.plan,
     category: parsed.category,
-    priority: parsed.priority,
   };
   pendingTasks.set(userId, state);
   return ctx.reply(formatBulkPreview(tasks, parsed.action, parsed), {
@@ -271,13 +263,8 @@ async function handleText(ctx, text) {
     const { taskId } = state.addingStep;
     delete state.addingStep;
     pendingTasks.set(userId, state);
-    const newSub = createSubtask(taskId, text);
-    const task   = getTaskById(taskId);
-    if (isNotionEnabled(userId) && task.notion_page_id) {
-      appendSubtaskToNotion(task.notion_page_id, newSub)
-        .then(blockId => { if (blockId) updateSubtask(newSub.id, { notion_block_id: blockId }); })
-        .catch(() => {});
-    }
+    await appendSubtaskWithNotion(userId, taskId, text);
+    const task     = getTaskById(taskId);
     const subtasks = getSubtasks(taskId);
     return ctx.reply(formatStepsList(task, subtasks), {
       parse_mode: 'Markdown',
@@ -290,10 +277,7 @@ async function handleText(ctx, text) {
     const { subId, taskId } = state.editingStep;
     delete state.editingStep;
     pendingTasks.set(userId, state);
-    const updatedSub = updateSubtask(subId, { title: text });
-    if (isNotionEnabled(userId) && updatedSub.notion_block_id) {
-      updateSubtaskBlockTitle(updatedSub.notion_block_id, text).catch(() => {});
-    }
+    const updatedSub = await editSubtaskTitleWithNotion(userId, subId, text);
     const task     = getTaskById(taskId);
     const subtasks = getSubtasks(taskId);
     return ctx.reply(formatStepsList(task, subtasks), {

@@ -2,7 +2,6 @@ const { getSubtasks } = require('../../application/subtasks');
 const { utcToLocal, parserReminderToUtc } = require('../../shared/helpers');
 
 const STATUS_ICON     = { not_started: '⬜', in_progress: '🔄', done: '✅', waiting: '⏸' };
-const PRIORITY_ICON   = { high: '🔴', medium: '🟡', low: '🟢' };
 const STATUS_LABEL_RU = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании' };
 
 function formatWaitingUntil(dateStr) {
@@ -15,16 +14,14 @@ function formatWaitingUntil(dateStr) {
 }
 
 function formatTaskText(t, index) {
-  const icon     = STATUS_ICON[t.status] ?? '⬜';
-  const priority = t.priority ? ` ${PRIORITY_ICON[t.priority]}` : '';
-  const cat      = t.category_name ? ` · ${t.category_name}` : '';
-  const due      = t.planned_for ? ` · 📅 ${t.planned_for}` : '';
-  return `${index}. ${icon}${priority} *${t.title}*${cat}${due}`;
+  const icon = STATUS_ICON[t.status] ?? '⬜';
+  const cat  = t.category_name ? ` · ${t.category_name}` : '';
+  const due  = t.planned_for ? ` · 📅 ${t.planned_for}` : '';
+  return `${index}. ${icon} *${t.title}*${cat}${due}`;
 }
 
 function formatTaskDetail(t, timezone) {
-  const statusLabel   = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании' };
-  const priorityLabel = { high: '🔴 Высокий', medium: '🟡 Средний', low: '🟢 Низкий' };
+  const statusLabel = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании' };
   const lines = [`📌 *${t.title}*\n`];
   lines.push(`*Статус:* ${statusLabel[t.status] ?? t.status}`);
   if (t.status === 'waiting') {
@@ -32,7 +29,6 @@ function formatTaskDetail(t, timezone) {
     if (t.waiting_until)  lines.push(`*До:* ${formatWaitingUntil(t.waiting_until)}`);
   }
   if (t.category_name) lines.push(`*Категория:* ${t.category_name}`);
-  if (t.priority)      lines.push(`*Приоритет:* ${priorityLabel[t.priority] ?? t.priority}`);
   if (t.planned_for)   lines.push(`*Запланировано:* ${t.planned_for}`);
   if (t.description)   lines.push(`*Описание:* ${t.description}`);
   if (t.goal_title)    lines.push(`*Цель:* ${t.goal_title}`);
@@ -60,7 +56,6 @@ function formatPreview(task, timezone) {
   if (task.description) lines.push(`*Описание:* ${task.description}`);
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
   if (task.plannedFor)  lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
-  if (task.priority)    lines.push(`*⚡ Приоритет:* ${task.priority}`);
   if (task.goal)        lines.push(`*📎 Цель:* ${task.goal}`);
   if (task.reminder_at) {
     let reminderDisplay = task.reminder_at;
@@ -113,13 +108,11 @@ function formatPlanDetail(plan, tasks) {
 }
 
 function formatPlanSuggestion(parsed) {
-  const priIcon = { 'Высокий': '🔴', 'Средний': '🟡', 'Низкий': '🟢' };
   const lines = [`🤖 *Предлагаю план:*\n`, `📋 *${parsed.title}*`];
   if (parsed.description) lines.push(`_${parsed.description}_`);
   lines.push(`\n*Задачи (${parsed.tasks.length}):*`);
   parsed.tasks.forEach((t, i) => {
     let line = `${i + 1}. ${t.title}`;
-    if (t.priority) line += ` ${priIcon[t.priority] ?? ''}`;
     if (t.category) line += ` · 📁 ${t.category}`;
     if (t.plannedFor) line += ` · 📅 ${t.plannedFor}`;
     lines.push(line);
@@ -145,7 +138,6 @@ function formatBatchTaskPreview(task, index, total) {
   if (task.description) lines.push(`*Описание:* ${task.description}`);
   lines.push(`*📁 Категория:* ${task.category ?? 'не указана'}`);
   if (task.plannedFor) lines.push(`*📅 Запланировано:* ${task.plannedFor}`);
-  if (task.priority)  lines.push(`*⚡ Приоритет:* ${task.priority}`);
   if (task.goal)      lines.push(`*📎 Цель:* ${task.goal}`);
   if (task.status === 'waiting') {
     lines.push(`*Статус:* ⏸ В ожидании`);
@@ -165,7 +157,6 @@ function formatBulkPreview(tasks, action, params) {
     delete:          '→ 🗑 Удалить',
     assign_plan:     `→ 📋 ${params.plan}`,
     assign_category: `→ 📁 ${params.category}`,
-    set_priority:    `→ ⚡ ${params.priority}`,
   }[action] ?? '';
   const lines = [`⚡ *Групповое действие* ${actionDesc}\n`, `Затронет *${tasks.length}* задач:\n`];
   tasks.slice(0, 10).forEach((t, i) => lines.push(`${i + 1}. ${t.title}`));
@@ -174,7 +165,7 @@ function formatBulkPreview(tasks, action, params) {
 }
 
 module.exports = {
-  STATUS_ICON, PRIORITY_ICON, STATUS_LABEL_RU,
+  STATUS_ICON, STATUS_LABEL_RU,
   formatTaskText, formatTaskDetail, formatWaitingUntil, formatPreview,
   formatPlanLine, formatPlanDetail, formatPlanSuggestion,
   formatStepsList, formatBulkPreview, formatBatchTaskPreview,

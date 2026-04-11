@@ -8,8 +8,6 @@ const {
   createCategory,
   getCategoryTaskCount,
   deleteCategory,
-  PRIORITY_MAP,
-  PRIORITY_LABEL,
 } = categoryRepo;
 
 module.exports = {
@@ -20,6 +18,4 @@ module.exports = {
   createCategory,
   getCategoryTaskCount,
   deleteCategory,
-  PRIORITY_MAP,
-  PRIORITY_LABEL,
 };

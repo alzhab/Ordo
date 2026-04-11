@@ -12,8 +12,6 @@
 const { Client } = require('@notionhq/client');
 const { NOTION_TOKEN, NOTION_DATABASE_ID, NOTION_PLANS_DATABASE_ID } = require('../../shared/config');
 
-const PRIORITY_LABEL = { high: 'Высокий', medium: 'Средний', low: 'Низкий' };
-
 // Централизованный лог ошибок Notion.
 // Rate limit (429) и ошибки схемы логируются как warn — это ожидаемые ситуации.
 // Остальное — error.
@@ -54,9 +52,6 @@ async function pushTask(task) {
   if (task.planned_for) {
     properties['Due Date'] = { date: { start: task.planned_for } };
   }
-  if (task.priority) {
-    properties.Priority = { select: { name: PRIORITY_LABEL[task.priority] ?? task.priority } };
-  }
   if (task.goal_notion_page_id ?? task.plan_notion_page_id) {
     properties.Plan = { relation: [{ id: task.goal_notion_page_id ?? task.plan_notion_page_id }] };
   }
@@ -95,9 +90,6 @@ async function updateTaskFields(notionPageId, task) {
   }
   if (task.planned_for) {
     properties['Due Date'] = { date: { start: task.planned_for } };
-  }
-  if (task.priority) {
-    properties.Priority = { select: { name: PRIORITY_LABEL[task.priority] ?? task.priority } };
   }
   if (task.goal_notion_page_id ?? task.plan_notion_page_id) {
     properties.Plan = { relation: [{ id: task.goal_notion_page_id ?? task.plan_notion_page_id }] };

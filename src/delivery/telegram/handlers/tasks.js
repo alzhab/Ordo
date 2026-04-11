@@ -270,17 +270,6 @@ function register(bot) {
     ctx.answerCbQuery();
   });
 
-  // Выбор приоритета (новая задача)
-  bot.action(/^pri_(.+)$/, async (ctx) => {
-    const userId = getUser(ctx);
-    const state  = pendingTasks.get(userId);
-    if (!state) return ctx.answerCbQuery('Сессия устарела, отправь задачу заново.');
-    state.task.priority = ctx.match[1];
-    state.editingField  = null;
-    await safeEdit(ctx, formatPreview(state.task, getUserTz(userId)), { parse_mode: 'Markdown', ...confirmButtons });
-    ctx.answerCbQuery();
-  });
-
   // Меню редактирования (новая задача)
   bot.action('edit_menu', async (ctx) => {
     const userId = getUser(ctx);
@@ -291,8 +280,8 @@ function register(bot) {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Название', 'edit_field_title'), Markup.button.callback('Описание', 'edit_field_description')],
-        [Markup.button.callback('Категория', 'edit_field_category'), Markup.button.callback('Приоритет', 'edit_field_priority')],
-        [Markup.button.callback('Дата', 'edit_field_plannedFor'), Markup.button.callback('План', 'edit_field_plan')],
+        [Markup.button.callback('Категория', 'edit_field_category'), Markup.button.callback('Дата', 'edit_field_plannedFor')],
+        [Markup.button.callback('План', 'edit_field_plan')],
         [Markup.button.callback('◀️ Назад', 'edit_back')],
       ]),
     });
@@ -314,20 +303,6 @@ function register(bot) {
     await ctx.answerCbQuery();
     const categories = getCategoryNames(userId);
     await safeEdit(ctx, '📁 Выбери категорию:', buildCategoryButtons(categories, true));
-  });
-
-  bot.action('edit_field_priority', async (ctx) => {
-    const state = pendingTasks.get(getUser(ctx));
-    if (!state) return ctx.answerCbQuery('Сессия устарела.');
-    await ctx.answerCbQuery();
-    await safeEdit(ctx, '⚡ Выбери приоритет:', Markup.inlineKeyboard([
-      [
-        Markup.button.callback('🔴 Высокий', 'pri_Высокий'),
-        Markup.button.callback('🟡 Средний', 'pri_Средний'),
-        Markup.button.callback('🟢 Низкий',  'pri_Низкий'),
-      ],
-      [Markup.button.callback('◀️ Назад', 'edit_back')],
-    ]));
   });
 
   bot.action('edit_field_plan', async (ctx) => {
@@ -376,7 +351,7 @@ function register(bot) {
     await ctx.answerCbQuery();
     const rows = [
       [Markup.button.callback('Название', `esf_title_${taskId}`), Markup.button.callback('Описание', `esf_desc_${taskId}`)],
-      [Markup.button.callback('Категория', `esf_cat_${taskId}`), Markup.button.callback('Приоритет', `esf_pri_${taskId}`)],
+      [Markup.button.callback('Категория', `esf_cat_${taskId}`)],
       [Markup.button.callback('Запланировать на', `esf_date_${taskId}`), Markup.button.callback('План', `esf_plan_${taskId}`)],
       [Markup.button.callback('🔔 Напоминание', `esf_reminder_${taskId}`)],
     ];
@@ -505,29 +480,6 @@ function register(bot) {
     if (!cat) cat = createCategory(userId, catName);
     const updated = updateTask(taskId, { category_id: cat.id }, userId);
     await ctx.answerCbQuery('✅ Категория обновлена');
-    const planId = taskPlanContext.get(userId) ?? null;
-    await safeEdit(ctx, formatTaskDetail(updated, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
-  });
-
-  bot.action(/^esf_pri_(\d+)$/, async (ctx) => {
-    const taskId = Number(ctx.match[1]);
-    await ctx.answerCbQuery();
-    await safeEdit(ctx, '⚡ Выбери приоритет:', Markup.inlineKeyboard([
-      [
-        Markup.button.callback('🔴 Высокий', `prisaved_${taskId}_high`),
-        Markup.button.callback('🟡 Средний', `prisaved_${taskId}_medium`),
-        Markup.button.callback('🟢 Низкий',  `prisaved_${taskId}_low`),
-      ],
-      [Markup.button.callback('◀️ Назад', `edit_saved_${taskId}`)],
-    ]));
-  });
-
-  bot.action(/^prisaved_(\d+)_(high|medium|low)$/, async (ctx) => {
-    const taskId   = Number(ctx.match[1]);
-    const priority = ctx.match[2];
-    const userId   = getUser(ctx);
-    const updated  = updateTask(taskId, { priority }, userId);
-    await ctx.answerCbQuery('✅ Приоритет обновлён');
     const planId = taskPlanContext.get(userId) ?? null;
     await safeEdit(ctx, formatTaskDetail(updated, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(updated, planId, needsNotionLink(updated, userId)) });
   });
@@ -747,12 +699,11 @@ function register(bot) {
     if (!acquireProcessing(userId)) return ctx.answerCbQuery('⏳ Уже обрабатывается...');
     const state  = pendingTasks.get(userId);
     if (!state?.bulkAction) { releaseProcessing(userId); return ctx.answerCbQuery('Сессия устарела.'); }
-    const { taskIds, action, status, plan, category, priority } = state.bulkAction;
+    const { taskIds, action, status, plan, category } = state.bulkAction;
     delete state.bulkAction;
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
     await safeEdit(ctx, '⏳ Выполняю...');
-    const { PRIORITY_MAP } = require('../../../application/categories');
     const { getPlanByTitle } = require('../../../application/goals');
     let count = 0;
     for (const taskId of taskIds) {
@@ -776,9 +727,6 @@ function register(bot) {
           updateTask(taskId, { category_id: cat.id }, userId);
           break;
         }
-        case 'set_priority':
-          updateTask(taskId, { priority: PRIORITY_MAP[priority] ?? priority }, userId);
-          break;
       }
       count++;
     }

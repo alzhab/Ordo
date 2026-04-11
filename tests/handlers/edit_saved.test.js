@@ -210,36 +210,7 @@ describe('SC-23: catsaved_N_X — обновление категории', () =
   });
 });
 
-// ─── SC-24: prisaved_N_(high|medium|low) — обновить приоритет ────────────────
-
-describe('SC-24: prisaved_N_X — обновление приоритета', () => {
-  test('приоритет high сохраняется', async () => {
-    const task = taskService.createTask(USER_ID, { title: 'Задача' });
-    const ctx  = mockCtx({ userId: USER_ID, isCallback: true });
-
-    await bot.trigger(`prisaved_${task.id}_high`, ctx);
-
-    expect(taskService.getTaskById(task.id).priority).toBe('high');
-  });
-
-  test('приоритет medium сохраняется', async () => {
-    const task = taskService.createTask(USER_ID, { title: 'Задача' });
-    const ctx  = mockCtx({ userId: USER_ID, isCallback: true });
-
-    await bot.trigger(`prisaved_${task.id}_medium`, ctx);
-
-    expect(taskService.getTaskById(task.id).priority).toBe('medium');
-  });
-
-  test('приоритет low сохраняется', async () => {
-    const task = taskService.createTask(USER_ID, { title: 'Задача' });
-    const ctx  = mockCtx({ userId: USER_ID, isCallback: true });
-
-    await bot.trigger(`prisaved_${task.id}_low`, ctx);
-
-    expect(taskService.getTaskById(task.id).priority).toBe('low');
-  });
-});
+// SC-24 (приоритет) — удалён, поле priority убрано из схемы
 
 // ─── SC-25: plansaved_N_M — обновить план ────────────────────────────────────
 

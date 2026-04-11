@@ -46,7 +46,6 @@ function buildSystemPrompt(categories, plans = [], timezone) {
   "description": string | null,
   "plannedFor": ISO date string | null,
   "category": ${categoryList} | <новая категория> | null,
-  "priority": "Высокий" | "Средний" | "Низкий" | null,
   "plan": ${planList ?? 'null'} | null,
   "subtasks": [string, ...] | null,
   "status": "waiting" | null,
@@ -82,7 +81,6 @@ function buildSystemPrompt(categories, plans = [], timezone) {
       "description": string | null,
       "plannedFor": ISO date string | null,
       "category": ${categoryList} | <новая категория> | null,
-      "priority": "Высокий" | "Средний" | "Низкий" | null,
       "plan": ${planList ?? 'null'} | null,
       "subtasks": [string, ...] | null,
       "status": "waiting" | null,
@@ -113,7 +111,6 @@ function buildSystemPrompt(categories, plans = [], timezone) {
     {
       "title": string,
       "category": ${categoryList} | <новая категория> | null,
-      "priority": "Высокий" | "Средний" | "Низкий" | null,
       "plannedFor": ISO date string | null,
       "subtasks": [string, ...]
     }
@@ -125,12 +122,11 @@ function buildSystemPrompt(categories, plans = [], timezone) {
 {
   "intent": "manage_task",
   "search": string,
-  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_planned_for" | "set_priority" | "set_waiting" | "set_reminder",
+  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_planned_for" | "set_waiting" | "set_reminder",
   "status": "not_started" | "in_progress" | "waiting" | "done" | null,
   "plan": string | null,
   "category": string | null,
   "date": ISO date string | null,
-  "priority": "Высокий" | "Средний" | "Низкий" | null,
   "waiting_reason": string | null,
   "waiting_until": ISO date string | null,
   "reminder_at": "YYYY-MM-DD HH:MM" | "через N минут" | "через N часов" | null
@@ -142,7 +138,6 @@ function buildSystemPrompt(categories, plans = [], timezone) {
 - "верни X в очередь" → action: "update_status", status: "not_started"
 - "перенеси X в план Y" → action: "assign_plan", plan: "Y"
 - "поставь X на дату Y" / "запланируй X на Y" → action: "set_planned_for", date: "Y"
-- "приоритет X — высокий" → action: "set_priority", priority: "Высокий"
 - "задача X в ожидании, жду доставку с WB до 25 марта" → action: "set_waiting", waiting_reason: "жду доставку с WB", waiting_until: "2026-03-25"
 - "задача X в ожидании, жду ответа от врача" → action: "set_waiting", waiting_reason: "жду ответа от врача", waiting_until: null
 - "задача X ждёт" / "X pending" / "жду по X" → action: "set_waiting"
@@ -188,11 +183,10 @@ function buildSystemPrompt(categories, plans = [], timezone) {
     "status": "not_started" | "in_progress" | "done" | null,
     "search": string | null
   },
-  "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_priority",
+  "action": "update_status" | "delete" | "assign_plan" | "assign_category",
   "status": "not_started" | "in_progress" | "done" | null,
   "plan": string | null,
-  "category": string | null,
-  "priority": "Высокий" | "Средний" | "Низкий" | null
+  "category": string | null
 }
 Примеры manage_tasks_bulk:
 - "все задачи готовы" → scope: "all", action: "update_status", status: "done"

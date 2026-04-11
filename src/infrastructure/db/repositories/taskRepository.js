@@ -12,18 +12,17 @@ const TASK_SELECT = `
   LEFT JOIN goals g ON g.id = t.goal_id
 `;
 
-// Принимает уже разрешённые поля: category_id, goal_id, priority.
+// Принимает уже разрешённые поля: category_id, goal_id.
 // Бизнес-логика резолвинга (категория по имени, цель по заголовку) — в application/tasks.js.
 function createTask(userId, parsed) {
   const result = db.prepare(`
-    INSERT INTO tasks (user_id, title, description, status, priority, category_id, goal_id, planned_for, waiting_reason, waiting_until, reminder_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (user_id, title, description, status, category_id, goal_id, planned_for, waiting_reason, waiting_until, reminder_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     parsed.title,
     parsed.description ?? null,
     parsed.status ?? 'todo',
-    parsed.priority ?? null,
     parsed.category_id ?? null,
     parsed.goal_id ?? null,
     parsed.plannedFor ?? null,
@@ -112,7 +111,7 @@ function updateTask(id, fields) {
     fields = { ...fields, goal_id: fields.plan_id };
     delete fields.plan_id;
   }
-  const allowed = ['title', 'description', 'status', 'priority', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
+  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 

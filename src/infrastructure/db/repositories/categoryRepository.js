@@ -4,23 +4,6 @@ const db = require('../connection');
 // Экспортируется для использования в userRepository при первом входе.
 const DEFAULT_CATEGORIES = ['Общее', 'Работа', 'Дом', 'Здоровье', 'Инвестиции'];
 
-// Маппинг приоритетов: принимает оба варианта — русские названия от пользователя
-// и английские значения из БД. Используется в application/tasks.createTask.
-const PRIORITY_MAP = {
-  'Высокий': 'high',
-  'Средний': 'medium',
-  'Низкий':  'low',
-  'high':    'high',
-  'medium':  'medium',
-  'low':     'low',
-};
-
-// Обратный маппинг для отображения пользователю
-const PRIORITY_LABEL = {
-  'high':   'Высокий',
-  'medium': 'Средний',
-  'low':    'Низкий',
-};
 
 function getCategories(userId) {
   return db.prepare('SELECT id, name, color FROM categories WHERE user_id = ? ORDER BY id').all(userId);
@@ -63,6 +46,4 @@ module.exports = {
   createCategory,
   getCategoryTaskCount,
   deleteCategory,
-  PRIORITY_MAP,
-  PRIORITY_LABEL,
 };
