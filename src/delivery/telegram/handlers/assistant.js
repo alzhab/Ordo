@@ -6,7 +6,7 @@ const { isQuietMode } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
-const { getAll: getAllRecurring, remove: removeRecurring, formatSchedule } = require('../../../application/notifications');
+const { getAllRecurring, removeRecurring, formatSchedule } = require('../../../application/notifications');
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ async function handleMorning(ctx) {
 
 async function handleMorningForDate(ctx, date) {
   const userId = ctx.from.id;
-  await ctx.sendChatAction('typing');
+  await safeEdit(ctx, `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`, { parse_mode: 'Markdown' });
 
   const planned = getTasksByPlannedDate(userId, date);
 
