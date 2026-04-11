@@ -2,7 +2,6 @@ const db = require('../infrastructure/db/connection');
 const { getSettings } = require('./settings');
 const { localNow, localToUtc } = require('../shared/helpers');
 const taskRepo = require('../infrastructure/db/repositories/taskRepository');
-const recurringRepo = require('../infrastructure/db/repositories/recurringRepository');
 const syncErrorRepo = require('../infrastructure/db/repositories/syncErrorRepository');
 
 function logNotification(userId, type, taskId = null) {
@@ -35,7 +34,7 @@ function getDueReminders() {
 }
 
 function getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth) {
-  return recurringRepo.getDueNow(currentHHMM, currentDay, currentDayOfMonth);
+  return taskRepo.getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth);
 }
 
 module.exports = {
@@ -44,10 +43,6 @@ module.exports = {
   wasNotifiedToday,
   getDueReminders,
   getRecurringDueNow,
-  getAllRecurring: recurringRepo.getAll,
-  createRecurring: recurringRepo.create,
-  removeRecurring: recurringRepo.remove,
-  formatSchedule: recurringRepo.formatSchedule,
   logSyncError: syncErrorRepo.logSyncError,
   getSyncErrors: syncErrorRepo.getSyncErrors,
   clearSyncErrors: syncErrorRepo.clearSyncErrors,

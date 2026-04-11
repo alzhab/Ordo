@@ -27,6 +27,9 @@ async function renderTaskListFiltered(ctx, userId, filter = {}, edit = false) {
   ];
 
   const secondRow = [
+    filter.plannedToday
+      ? Markup.button.callback('📅 Сегодня ×', 'tf_clear_today')
+      : Markup.button.callback('📅 Сегодня', 'tf_today'),
     filter.includeArchived
       ? Markup.button.callback('📦 Архив ×', 'tf_clear_archived')
       : Markup.button.callback('📦 Архив', 'tf_archived'),

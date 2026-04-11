@@ -6,7 +6,7 @@ const { isQuietMode } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
-const { getAllRecurring, removeRecurring, formatSchedule } = require('../../../application/notifications');
+const { formatRecurringSchedule } = require('../formatters');
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -20,6 +20,65 @@ function progressBar(done, total) {
   if (!total) return '░░░░░░░░';
   const filled = Math.round((done / total) * 8);
   return '█'.repeat(filled) + '░'.repeat(8 - filled);
+}
+
+// ─── Calendar picker ─────────────────────────────────────────
+
+const CAL_MONTH_NAMES = [
+  'Январь','Февраль','Март','Апрель','Май','Июнь',
+  'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь',
+];
+
+function buildCalendarKeyboard(year, month) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [ty, tm] = todayStr.split('-').map(Number);
+
+  const [pY, pM] = month === 1  ? [year - 1, 12]     : [year, month - 1];
+  const [nY, nM] = month === 12 ? [year + 1, 1]      : [year, month + 1];
+  const pStr = `${pY}_${String(pM).padStart(2, '0')}`;
+  const nStr = `${nY}_${String(nM).padStart(2, '0')}`;
+
+  // Разрешаем: 1 месяц назад и 3 месяца вперёд
+  const canPrev = pY > ty || (pY === ty && pM >= tm - 1);
+  const canNext = nY < ty || (nY === ty && nM <= tm + 3) || (nY === ty + 1 && tm >= 10);
+
+  const navRow = [
+    Markup.button.callback(canPrev ? '◀️' : ' ', canPrev ? `cal_nav_${pStr}` : 'cal_noop'),
+    Markup.button.callback(`${CAL_MONTH_NAMES[month - 1]} ${year}`, 'cal_noop'),
+    Markup.button.callback(canNext ? '▶️' : ' ', canNext ? `cal_nav_${nStr}` : 'cal_noop'),
+  ];
+
+  const headerRow = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
+    .map(d => Markup.button.callback(d, 'cal_noop'));
+
+  const firstDow   = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Пн=0
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const cells = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    weeks.push(
+      cells.slice(i, i + 7).map(day => {
+        if (!day) return Markup.button.callback(' ', 'cal_noop');
+        const ds = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const past    = ds < todayStr;
+        const isToday = ds === todayStr;
+        const label   = isToday ? `·${day}·` : String(day);
+        return past
+          ? Markup.button.callback(label, 'cal_noop')
+          : Markup.button.callback(label, `cal_pick_${ds}`);
+      })
+    );
+  }
+
+  return Markup.inlineKeyboard([
+    navRow, headerRow, ...weeks,
+    [Markup.button.callback('✖️ К плану', 'cal_close')],
+  ]);
 }
 
 // ─── /morning ────────────────────────────────────────────────
@@ -39,29 +98,14 @@ function addDays(n) {
 
 async function handleMorning(ctx) {
   getUser(ctx);
-  const today    = addDays(0);
-  const tomorrow = addDays(1);
-  const d2       = addDays(2);
-  const d3       = addDays(3);
-
-  await ctx.reply('📅 *На какой день составить план?*', {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      [
-        Markup.button.callback(`Сегодня ${formatDateLabel(today)}`,    `mplan_${today}`),
-        Markup.button.callback(`Завтра ${formatDateLabel(tomorrow)}`,  `mplan_${tomorrow}`),
-      ],
-      [
-        Markup.button.callback(formatDateLabel(d2), `mplan_${d2}`),
-        Markup.button.callback(formatDateLabel(d3), `mplan_${d3}`),
-      ],
-    ]),
-  });
+  await handleMorningForDate(ctx, addDays(0));
 }
 
 async function handleMorningForDate(ctx, date) {
   const userId = ctx.from.id;
-  await safeEdit(ctx, `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`, { parse_mode: 'Markdown' });
+  if (ctx.callbackQuery) {
+    await safeEdit(ctx, `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`, { parse_mode: 'Markdown' });
+  }
 
   const planned = getTasksByPlannedDate(userId, date);
 
@@ -108,6 +152,8 @@ async function renderPlanSummary(ctx, userId) {
     lines.push(`🤖 Рекомендует AI: *${suggestions.length}*`);
     buttons.push([Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions')]);
   }
+
+  buttons.push([Markup.button.callback('📅 Другой день', 'plan_pick_date')]);
 
   await safeEdit(ctx, lines.join('\n'), {
     parse_mode: 'Markdown',
@@ -343,7 +389,7 @@ async function handleProgress(ctx) {
 async function handleReminders(ctx) {
   getUser(ctx);
   const userId = ctx.from.id;
-  const items = getAllRecurring(userId);
+  const items  = getTasks(userId, { isRecurring: true });
 
   if (!items.length) {
     return ctx.reply(
@@ -353,7 +399,7 @@ async function handleReminders(ctx) {
 
   const lines = ['🔄 *Повторяющиеся напоминания:*\n'];
   items.forEach((r, i) => {
-    lines.push(`${i + 1}. *${r.title}*\n   ${formatSchedule(r)}`);
+    lines.push(`${i + 1}. *${r.title}*\n   ${formatRecurringSchedule(r)}`);
   });
 
   const buttons = items.map(r => [
@@ -373,12 +419,48 @@ function register(bot) {
   bot.command('progress', handleProgress);
   bot.command('reminders', handleReminders);
 
-  // Morning — выбор даты
+  // Morning — старый выбор даты (для обратной совместимости с pending сообщениями)
   bot.action(/^mplan_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
-    const date = ctx.match[1];
     getUser(ctx);
     await ctx.answerCbQuery();
-    await handleMorningForDate(ctx, date);
+    await handleMorningForDate(ctx, ctx.match[1]);
+  });
+
+  // Calendar — открыть пикер для текущего месяца
+  bot.action('plan_pick_date', async (ctx) => {
+    await ctx.answerCbQuery();
+    const now = new Date();
+    await safeEdit(ctx, '📅 *Выбери день:*', {
+      parse_mode: 'Markdown',
+      ...buildCalendarKeyboard(now.getFullYear(), now.getMonth() + 1),
+    });
+  });
+
+  // Calendar — навигация по месяцам
+  bot.action(/^cal_nav_(\d{4})_(\d{2})$/, async (ctx) => {
+    const year  = parseInt(ctx.match[1]);
+    const month = parseInt(ctx.match[2]);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, '📅 *Выбери день:*', {
+      parse_mode: 'Markdown',
+      ...buildCalendarKeyboard(year, month),
+    });
+  });
+
+  // Calendar — выбор дня → загрузить план
+  bot.action(/^cal_pick_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    await handleMorningForDate(ctx, ctx.match[1]);
+  });
+
+  // Calendar — заглушка для нажатия на пустые ячейки
+  bot.action('cal_noop', ctx => ctx.answerCbQuery());
+
+  // Calendar — закрыть, вернуться к плану
+  bot.action('cal_close', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await renderPlanSummary(ctx, userId);
   });
 
   // Plan — открыть слайдер категории
@@ -536,10 +618,11 @@ function register(bot) {
   bot.action(/^rv_keep_(\d+)$/,     rvAction(() => {},                                                                           '⏸ Оставлено'));
   bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                      '📅 На завтра'));
 
-  // Recurring — удаление
+  // Recurring — удаление (soft delete задачи)
   bot.action(/^rec_del_(\d+)$/, ctx => {
-    const id = parseInt(ctx.match[1]);
-    removeRecurring(id);
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    deleteTask(id, userId);
     ctx.answerCbQuery('Удалено');
     ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     ctx.reply('🗑 Напоминание удалено.');

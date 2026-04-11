@@ -12,12 +12,47 @@ const TASK_SELECT = `
   LEFT JOIN goals g ON g.id = t.goal_id
 `;
 
+// Вычисляет дату следующего срабатывания для повторяющейся задачи.
+// fromTomorrow=true — начинать со завтра (используется при смещении после срабатывания).
+function computeNextOccurrence(recur_days, recur_day_of_month, fromTomorrow = false) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (fromTomorrow) start.setDate(start.getDate() + 1);
+
+  if (recur_day_of_month) {
+    const next = new Date(start.getFullYear(), start.getMonth(), recur_day_of_month);
+    if (next < start) next.setMonth(next.getMonth() + 1);
+    return next.toISOString().split('T')[0];
+  }
+
+  const days = recur_days
+    ? (typeof recur_days === 'string' ? JSON.parse(recur_days) : recur_days)
+    : null;
+
+  if (!days) return start.toISOString().split('T')[0]; // ежедневно
+
+  for (let i = 0; i <= 7; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    if (days.includes(d.getDay())) return d.toISOString().split('T')[0];
+  }
+  return start.toISOString().split('T')[0];
+}
+
 // Принимает уже разрешённые поля: category_id, goal_id.
 // Бизнес-логика резолвинга (категория по имени, цель по заголовку) — в application/tasks.js.
 function createTask(userId, parsed) {
+  const recurDays = parsed.recur_days != null
+    ? (typeof parsed.recur_days === 'string' ? parsed.recur_days : JSON.stringify(parsed.recur_days))
+    : null;
+
   const result = db.prepare(`
-    INSERT INTO tasks (user_id, title, description, status, category_id, goal_id, planned_for, waiting_reason, waiting_until, reminder_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (
+      user_id, title, description, status, category_id, goal_id, planned_for,
+      waiting_reason, waiting_until, reminder_at,
+      is_recurring, recur_days, recur_day_of_month, recur_time, recur_remind_before
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     parsed.title,
@@ -29,6 +64,11 @@ function createTask(userId, parsed) {
     parsed.waiting_reason ?? null,
     parsed.waiting_until ?? null,
     parsed.reminder_at ?? null,
+    parsed.is_recurring ? 1 : 0,
+    recurDays,
+    parsed.recur_day_of_month ?? null,
+    parsed.recur_time ?? null,
+    parsed.recur_remind_before ?? 0,
   );
 
   return getTaskById(result.lastInsertRowid);
@@ -42,7 +82,7 @@ function getTaskById(id) {
 // исключает done и deleted — показываем только активные задачи.
 // includeArchived = false исключает задачи из архивированных целей.
 function getTasks(userId, filter = {}) {
-  const { status, category, goalId, planId, search, includeArchived = false } = filter;
+  const { status, category, goalId, planId, search, includeArchived = false, plannedToday = false, isRecurring } = filter;
   const conditions = ['t.user_id = ?'];
   const params = [userId];
 
@@ -63,6 +103,14 @@ function getTasks(userId, filter = {}) {
   if (effectiveGoalId) {
     conditions.push('t.goal_id = ?');
     params.push(effectiveGoalId);
+  }
+  if (plannedToday) {
+    conditions.push("t.planned_for = date('now')");
+  }
+  if (isRecurring === true) {
+    conditions.push('t.is_recurring = 1');
+  } else if (isRecurring === false) {
+    conditions.push('t.is_recurring = 0');
   }
   if (search) {
     conditions.push('(t.title LIKE ? OR t.description LIKE ?)');
@@ -111,7 +159,7 @@ function updateTask(id, fields) {
     fields = { ...fields, goal_id: fields.plan_id };
     delete fields.plan_id;
   }
-  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent'];
+  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent', 'is_recurring', 'recur_days', 'recur_day_of_month', 'recur_time', 'recur_remind_before'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 
@@ -154,6 +202,35 @@ function getDueReminders() {
   `).all();
 }
 
+// Повторяющиеся задачи у которых подошло время уведомления.
+// Логика идентична старому recurringRepository.getDueNow.
+function getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth) {
+  const tasks = db.prepare(`
+    SELECT * FROM tasks
+    WHERE is_recurring = 1 AND status != 'deleted' AND planned_for <= date('now')
+  `).all();
+
+  return tasks.filter(task => {
+    if (!task.recur_time) return false;
+    const [eh, em] = task.recur_time.split(':').map(Number);
+    const notifyMin = (eh * 60 + em) - (task.recur_remind_before ?? 0);
+    const notifyHHMM = `${String(Math.floor(notifyMin / 60)).padStart(2, '0')}:${String(notifyMin % 60).padStart(2, '0')}`;
+    if (notifyHHMM !== currentHHMM) return false;
+    if (task.recur_day_of_month) return task.recur_day_of_month === currentDayOfMonth;
+    const days = task.recur_days ? JSON.parse(task.recur_days) : null;
+    if (days) return days.includes(currentDay);
+    return true; // ежедневно
+  });
+}
+
+// Сдвигает planned_for на следующее срабатывание после того как задача сработала.
+function advanceRecurring(taskId) {
+  const task = getTaskById(taskId);
+  if (!task) return null;
+  const nextDate = computeNextOccurrence(task.recur_days, task.recur_day_of_month, true);
+  return updateTask(taskId, { planned_for: nextDate, status: 'todo' });
+}
+
 module.exports = {
   createTask,
   getTaskById,
@@ -165,4 +242,7 @@ module.exports = {
   deleteTask,
   getUnsyncedTasks,
   getDueReminders,
+  getRecurringDueNow,
+  advanceRecurring,
+  computeNextOccurrence,
 };

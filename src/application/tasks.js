@@ -137,6 +137,8 @@ const {
   getTasksByPlan,
   getUnsyncedTasks,
   getDueReminders,
+  getRecurringDueNow,
+  advanceRecurring,
 } = taskRepo;
 
 module.exports = {
@@ -152,5 +154,7 @@ module.exports = {
   deleteTask,
   getUnsyncedTasks,
   getDueReminders,
+  getRecurringDueNow,
+  advanceRecurring,
   syncAllTasks,
 };

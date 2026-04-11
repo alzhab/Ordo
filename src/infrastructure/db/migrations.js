@@ -144,6 +144,46 @@ try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAU
 // Переименование: due_date → planned_for (семантика изменилась: не дедлайн, а дата плана)
 try { db.exec(`ALTER TABLE tasks RENAME COLUMN due_date TO planned_for`); } catch {}
 
+// Поля повторяющихся задач (перенесены из recurrent_tasks)
+try { db.exec(`ALTER TABLE tasks ADD COLUMN is_recurring        INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE tasks ADD COLUMN recur_days          TEXT`); } catch {}
+try { db.exec(`ALTER TABLE tasks ADD COLUMN recur_day_of_month  INTEGER`); } catch {}
+try { db.exec(`ALTER TABLE tasks ADD COLUMN recur_time          TEXT`); } catch {}
+try { db.exec(`ALTER TABLE tasks ADD COLUMN recur_remind_before INTEGER NOT NULL DEFAULT 0`); } catch {}
+
+// Миграция recurrent_tasks → tasks (одноразовая, идемпотентная)
+try {
+  const recurExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='recurrent_tasks'`).get();
+  if (recurExists) {
+    const recurrents = db.prepare('SELECT * FROM recurrent_tasks').all();
+    for (const r of recurrents) {
+      // Вычислить ближайшую дату срабатывания
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const todayStr = today.toISOString().split('T')[0];
+      let plannedFor = todayStr;
+      if (r.day_of_month) {
+        const d = new Date(today.getFullYear(), today.getMonth(), r.day_of_month);
+        if (d < today) d.setMonth(d.getMonth() + 1);
+        plannedFor = d.toISOString().split('T')[0];
+      } else if (r.days) {
+        const days = JSON.parse(r.days);
+        if (!days.includes(today.getDay())) {
+          for (let i = 1; i <= 7; i++) {
+            const d = new Date(today); d.setDate(d.getDate() + i);
+            if (days.includes(d.getDay())) { plannedFor = d.toISOString().split('T')[0]; break; }
+          }
+        }
+      }
+      db.prepare(`
+        INSERT INTO tasks (user_id, title, status, is_recurring, recur_days, recur_day_of_month, recur_time, recur_remind_before, planned_for)
+        VALUES (?, ?, 'todo', 1, ?, ?, ?, ?, ?)
+      `).run(r.user_id, r.title, r.days ?? null, r.day_of_month ?? null, r.event_time, r.reminder_before_minutes ?? 0, plannedFor);
+    }
+    db.exec('DROP TABLE recurrent_tasks');
+    console.log(`[migrations] recurrent_tasks → tasks: перенесено ${recurrents.length} напоминаний`);
+  }
+} catch (e) { console.error('[db] recurring migration error:', e.message); }
+
 // ─── Пересборка таблицы tasks (без priority, без FK на plans) ───
 // SQLite не поддерживает DROP COLUMN/DROP CONSTRAINT через ALTER TABLE.
 // Пересоздаём таблицу если в её CREATE SQL есть 'plans' (старый FK) или 'priority'.

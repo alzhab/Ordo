@@ -31,22 +31,26 @@ function createTestDb() {
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
-      id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id         INTEGER NOT NULL REFERENCES users(id),
-      title           TEXT    NOT NULL,
-      description     TEXT,
-      status          TEXT    NOT NULL DEFAULT 'not_started',
-      priority        TEXT,
-      category_id     INTEGER REFERENCES categories(id),
-      goal_id         INTEGER REFERENCES goals(id),
-      planned_for     TEXT,
-      notion_page_id  TEXT,
-      waiting_reason  TEXT,
-      waiting_until   TEXT,
-      reminder_at     TEXT,
-      reminder_sent   INTEGER NOT NULL DEFAULT 0,
-      created_at      TEXT DEFAULT (datetime('now')),
-      updated_at      TEXT DEFAULT (datetime('now'))
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id             INTEGER NOT NULL REFERENCES users(id),
+      title               TEXT    NOT NULL,
+      description         TEXT,
+      status              TEXT    NOT NULL DEFAULT 'todo',
+      category_id         INTEGER REFERENCES categories(id),
+      goal_id             INTEGER REFERENCES goals(id),
+      planned_for         TEXT,
+      notion_page_id      TEXT,
+      waiting_reason      TEXT,
+      waiting_until       TEXT,
+      reminder_at         TEXT,
+      reminder_sent       INTEGER NOT NULL DEFAULT 0,
+      is_recurring        INTEGER NOT NULL DEFAULT 0,
+      recur_days          TEXT,
+      recur_day_of_month  INTEGER,
+      recur_time          TEXT,
+      recur_remind_before INTEGER NOT NULL DEFAULT 0,
+      created_at          TEXT DEFAULT (datetime('now')),
+      updated_at          TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS subtasks (
@@ -82,16 +86,6 @@ function createTestDb() {
       reacted   INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS recurrent_tasks (
-      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id                 INTEGER NOT NULL REFERENCES users(id),
-      title                   TEXT    NOT NULL,
-      event_time              TEXT    NOT NULL,
-      days                    TEXT,
-      day_of_month            INTEGER,
-      reminder_before_minutes INTEGER NOT NULL DEFAULT 0,
-      created_at              TEXT    DEFAULT (datetime('now'))
-    );
   `);
 
   // Тестовый пользователь

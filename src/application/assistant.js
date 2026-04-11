@@ -75,10 +75,10 @@ function getReviewData(userId) {
     return d.toISOString().slice(0, 10);
   })();
 
-  // Незакрытые задачи из плана на сегодня
+  // Незакрытые задачи из плана на сегодня (без повторяющихся)
   const unclosed = db.prepare(`
     SELECT * FROM tasks
-    WHERE user_id = ? AND planned_for = ? AND status NOT IN ('done', 'deleted')
+    WHERE user_id = ? AND planned_for = ? AND status NOT IN ('done', 'deleted') AND is_recurring != 1
     ORDER BY created_at ASC
   `).all(userId, today);
 
@@ -94,10 +94,10 @@ function getReviewData(userId) {
     ORDER BY waiting_until ASC, updated_at ASC
   `).all(userId, today, threeDaysAgo);
 
-  // inbox: todo без даты, не трогалась 3+ дня
+  // inbox: todo без даты, не трогалась 3+ дня (без повторяющихся)
   const inbox = db.prepare(`
     SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'todo' AND planned_for IS NULL
+    WHERE user_id = ? AND status = 'todo' AND planned_for IS NULL AND is_recurring != 1
     AND date(updated_at) <= ?
     ORDER BY updated_at ASC
   `).all(userId, threeDaysAgo);

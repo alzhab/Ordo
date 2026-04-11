@@ -13,10 +13,38 @@ function formatWaitingUntil(dateStr) {
   return `${overdue ? '⚠️ ' : ''}${parseInt(d)} ${months[parseInt(m) - 1]} ${y}`;
 }
 
+const MONTH_SHORT  = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+const DAY_NAMES_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+
+function formatPlannedLabel(dateStr) {
+  const today    = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  if (dateStr < today)      return '⚠️ Просрочено';
+  if (dateStr === today)    return '📅 Сегодня';
+  if (dateStr === tomorrow) return '📅 Завтра';
+  const [, m, d] = dateStr.split('-');
+  return `📅 ${parseInt(d)} ${MONTH_SHORT[parseInt(m) - 1]}`;
+}
+
+function formatRecurringSchedule(task) {
+  const time     = task.recur_time ?? '';
+  const remind   = task.recur_remind_before > 0 ? `, за ${task.recur_remind_before} мин.` : '';
+  let pattern;
+  if (task.recur_day_of_month) {
+    pattern = `${task.recur_day_of_month}-го числа каждого месяца`;
+  } else {
+    const days = task.recur_days
+      ? (typeof task.recur_days === 'string' ? JSON.parse(task.recur_days) : task.recur_days)
+      : null;
+    pattern = (!days || days.length === 7) ? 'каждый день' : days.map(d => DAY_NAMES_RU[d]).join(', ');
+  }
+  return `🔄 ${pattern} в ${time}${remind}`;
+}
+
 function formatTaskText(t, index) {
-  const icon = STATUS_ICON[t.status] ?? '⬜';
-  const cat  = t.category_name ? ` · ${t.category_name}` : '';
-  const due  = t.planned_for ? ` · 📅 ${t.planned_for}` : '';
+  const icon    = t.is_recurring ? '🔄' : (STATUS_ICON[t.status] ?? '⬜');
+  const cat     = t.category_name ? ` · ${t.category_name}` : '';
+  const due     = t.planned_for ? ` · ${formatPlannedLabel(t.planned_for)}` : '';
   return `${index}. ${icon} *${t.title}*${cat}${due}`;
 }
 
@@ -169,4 +197,5 @@ module.exports = {
   formatTaskText, formatTaskDetail, formatWaitingUntil, formatPreview,
   formatPlanLine, formatPlanDetail, formatPlanSuggestion,
   formatStepsList, formatBulkPreview, formatBatchTaskPreview,
+  formatRecurringSchedule,
 };

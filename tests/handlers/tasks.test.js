@@ -90,42 +90,41 @@ jest.mock('../../src/infrastructure/db/connection', () => mockTestDb);
 // ─── SC-01: create_task — простая задача ─────────────────────────────────────
 
 describe('SC-01: create_task — простая задача', () => {
-  test('показывает превью и сохраняет state', async () => {
+  test('задача создаётся немедленно и бот отвечает подтверждением', async () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Купить молоко',
       category: null, status: null, description: null,
-      plannedFor: null, priority: null, plan: null, subtasks: null,
+      plannedFor: null, plan: null, subtasks: null,
     });
 
     const ctx = mockCtx({ userId: USER_ID });
     await handleText(ctx, 'Купить молоко');
 
-    // Превью отправлено
-    const previewCall = ctx.reply.mock.calls.find(
-      ([text]) => typeof text === 'string' && text.includes('Купить молоко')
+    // Ответ содержит название задачи и "сохранено"
+    const reply = ctx.reply.mock.calls.find(
+      ([text]) => typeof text === 'string' && text.includes('Купить молоко') && text.includes('сохранено')
     );
-    expect(previewCall).toBeDefined();
+    expect(reply).toBeDefined();
 
-    // State установлен
-    const state = pendingTasks.get(USER_ID);
-    expect(state.task.title).toBe('Купить молоко');
-    expect(state.task.category).toBe('Общее'); // дефолтная категория
+    // Задача в БД с дефолтной категорией
+    const tasks = taskService.getTasks(USER_ID, {});
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe('Купить молоко');
   });
 
-  test('категория из парсера сохраняется в state', async () => {
+  test('категория из парсера сохраняется в БД', async () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Сдать отчёт',
       category: 'Работа', status: null, description: null,
-      plannedFor: '2026-03-28', priority: 'Высокий', plan: null, subtasks: null,
+      plannedFor: '2026-03-28', plan: null, subtasks: null,
     });
 
     const ctx = mockCtx({ userId: USER_ID });
     await handleText(ctx, 'Сдать отчёт по работе в пятницу');
 
-    const state = pendingTasks.get(USER_ID);
-    expect(state.task.category).toBe('Работа');
-    expect(state.task.plannedFor).toBe('2026-03-28');
-    expect(state.task.priority).toBe('Высокий');
+    const tasks = taskService.getTasks(USER_ID, {});
+    expect(tasks[0].category_name).toBe('Работа');
+    expect(tasks[0].planned_for).toBe('2026-03-28');
   });
 
   test('при ошибке парсера отвечает сообщением об ошибке', async () => {
@@ -138,65 +137,70 @@ describe('SC-01: create_task — простая задача', () => {
       ([text]) => typeof text === 'string' && text.includes('Не удалось распознать')
     );
     expect(errorCall).toBeDefined();
-    expect(pendingTasks.get(USER_ID)).toBeUndefined();
+    // Задача не создана
+    expect(taskService.getTasks(USER_ID, {})).toHaveLength(0);
   });
 });
 
 // ─── SC-03: create_task — с подзадачами ──────────────────────────────────────
 
 describe('SC-03: create_task — задача с подзадачами', () => {
-  test('подзадачи попадают в state', async () => {
+  test('задача с подзадачами создаётся немедленно', async () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Подготовить презентацию',
       category: 'Работа', status: null, description: null,
-      plannedFor: null, priority: null, plan: null,
+      plannedFor: null, plan: null,
       subtasks: ['Сделать слайды', 'Собрать данные', 'Согласовать с командой'],
     });
 
     const ctx = mockCtx({ userId: USER_ID });
     await handleText(ctx, 'Подготовить презентацию: слайды, данные, согласование');
 
-    const state = pendingTasks.get(USER_ID);
-    expect(state.task.subtasks).toHaveLength(3);
-    expect(state.task.subtasks[0]).toBe('Сделать слайды');
+    const tasks = taskService.getTasks(USER_ID, {});
+    expect(tasks[0].title).toBe('Подготовить презентацию');
+
+    const { getSubtasks } = require('../../src/application/subtasks');
+    const subtasks = getSubtasks(tasks[0].id);
+    expect(subtasks).toHaveLength(3);
+    expect(subtasks[0].title).toBe('Сделать слайды');
   });
 });
 
 // ─── SC-05: create_task — автоопределение waiting ─────────────────────────────
 
 describe('SC-05: create_task — автоопределение waiting', () => {
-  test('статус waiting и поля ожидания попадают в state', async () => {
+  test('задача waiting создаётся с правильными полями', async () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Записался на приём к врачу',
       category: null, status: 'waiting',
       waiting_reason: 'приём у врача', waiting_until: '2026-03-28',
-      description: null, dueDate: null, priority: null, plan: null, subtasks: null,
+      description: null, plan: null, subtasks: null,
     });
 
     const ctx = mockCtx({ userId: USER_ID });
     await handleText(ctx, 'Записался на приём к врачу на пятницу');
 
-    const state = pendingTasks.get(USER_ID);
-    expect(state.task.status).toBe('waiting');
-    expect(state.task.waiting_reason).toBe('приём у врача');
-    expect(state.task.waiting_until).toBe('2026-03-28');
+    const tasks = taskService.getTasks(USER_ID, {});
+    expect(tasks[0].status).toBe('waiting');
+    expect(tasks[0].waiting_reason).toBe('приём у врача');
+    expect(tasks[0].waiting_until).toBe('2026-03-28');
   });
 
-  test('превью содержит "В ожидании" для waiting задачи', async () => {
+  test('бот отвечает подтверждением для waiting задачи', async () => {
     parseIntent.mockResolvedValueOnce({
       intent: 'create_task', title: 'Заказал вешалки на WB',
       category: null, status: 'waiting',
       waiting_reason: 'заказ на WB', waiting_until: '2026-03-25',
-      description: null, dueDate: null, priority: null, plan: null, subtasks: null,
+      description: null, plan: null, subtasks: null,
     });
 
     const ctx = mockCtx({ userId: USER_ID });
     await handleText(ctx, 'Заказал вешалки на WB, придут 25 марта');
 
-    const previewCall = ctx.reply.mock.calls.find(
-      ([text]) => typeof text === 'string' && text.includes('В ожидании')
+    const reply = ctx.reply.mock.calls.find(
+      ([text]) => typeof text === 'string' && text.includes('Заказал вешалки на WB') && text.includes('сохранено')
     );
-    expect(previewCall).toBeDefined();
+    expect(reply).toBeDefined();
   });
 });
 

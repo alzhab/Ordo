@@ -3,7 +3,7 @@ const db = require('../../infrastructure/db/connection');
 const { wasNotifiedToday, isQuietMode } = require('../../application/settings');
 const { handleMorning, handleReview } = require('./handlers/assistant');
 const { getRecurringDueNow, getDueReminders } = require('../../application/notifications');
-const { updateTask } = require('../../application/tasks');
+const { updateTask, advanceRecurring } = require('../../application/tasks');
 
 // Получить всех активных пользователей с их настройками
 function getActiveUsers() {
@@ -49,9 +49,12 @@ function getCurrentHHMM(timezone) {
 function makeFakeCtx(bot, userId) {
   return {
     from: { id: userId },
-    reply: (text, extra) => bot.telegram.sendMessage(userId, text, extra),
-    sendChatAction: () => bot.telegram.sendChatAction(userId, 'typing'),
-    answerCbQuery: () => {},
+    chat: { id: userId },
+    telegram: bot.telegram,
+    reply:           (text, extra) => bot.telegram.sendMessage(userId, text, extra),
+    editMessageText: (text, extra) => bot.telegram.sendMessage(userId, text, extra),
+    sendChatAction:  ()            => bot.telegram.sendChatAction(userId, 'typing'),
+    answerCbQuery:   ()            => {},
   };
 }
 
@@ -99,10 +102,11 @@ function start(bot) {
       const currentDayOfMonth = now.getDate();
       const due = getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth);
       for (const r of due) {
-        const text = r.reminder_before_minutes > 0
-          ? `🔔 Напоминание: *${r.title}* через ${r.reminder_before_minutes} мин.`
+        const text = r.recur_remind_before > 0
+          ? `🔔 Напоминание: *${r.title}* через ${r.recur_remind_before} мин.`
           : `🔔 *${r.title}*`;
         await bot.telegram.sendMessage(r.user_id, text, { parse_mode: 'Markdown' });
+        advanceRecurring(r.id);
       }
     } catch (e) {
       console.error('[scheduler] recurring error:', e.message);

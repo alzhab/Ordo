@@ -2,14 +2,15 @@ const { Markup } = require('telegraf');
 const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal } = require('../../../shared/helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../../../shared/state');
 const { getSettings, updateSettings } = require('../../../application/settings');
-const { create: createRecurring, formatSchedule } = require('../../../application/notifications');
+const { formatRecurringSchedule } = require('../formatters');
+const { computeNextOccurrence } = require('../../../infrastructure/db/repositories/taskRepository');
 const { fuzzyMatch } = require('../../../shared/fuzzy');
 const {
   STATUS_LABEL_RU,
-  formatTaskDetail, formatPreview, formatPlanDetail,
+  formatTaskDetail, formatPlanDetail,
   formatPlanSuggestion, formatBulkPreview, formatStepsList,
 } = require('../formatters');
-const { taskDetailButtons, stepsButtons, confirmButtons } = require('../keyboards');
+const { taskDetailButtons, stepsButtons } = require('../keyboards');
 const { renderTaskListFiltered, renderPlanTaskList } = require('../renderers');
 const { parseIntent } = require('../../../infrastructure/ai/parser');
 const { transcribeVoice } = require('../../../infrastructure/ai/whisper');
@@ -390,18 +391,6 @@ async function handleText(ctx, text) {
     return ctx.reply(formatTaskDetail(updated, tz), { parse_mode: 'Markdown', ...taskDetailButtons(updated, null, isNotionEnabled(userId) && !updated.notion_page_id) });
   }
 
-  // Редактирование несохранённой задачи
-  if (state?.editingField) {
-    const { task, editingField } = state;
-    const previewTz = getSettings(userId).timezone;
-    if (editingField === 'title')       task.title       = text;
-    if (editingField === 'plannedFor')  task.plannedFor  = parseFlexibleDate(text, previewTz);
-    if (editingField === 'description') task.description = text;
-    state.editingField = null;
-    await ctx.reply(formatPreview(task, previewTz), { parse_mode: 'Markdown', ...confirmButtons });
-    return;
-  }
-
   // Парсинг нового намерения
   const statusMsg = await ctx.reply('⏳ Анализирую...');
   let parsed;
@@ -443,35 +432,64 @@ async function handleText(ctx, text) {
   }
 
   if (parsed.intent === 'create_tasks_batch') {
-    const batchTasks = (parsed.tasks ?? []).map(t => ({ ...t, category: t.category ?? 'Общее' }));
+    const batchTasks = [...(parsed.tasks ?? [])];
     if (batchTasks.length === 0) return ctx.reply('Не удалось распознать задачи. Попробуй ещё раз.');
     if (batchTasks.length === 1) {
-      const task = batchTasks[0];
-      pendingTasks.set(userId, { task, editingField: null });
-      return ctx.reply(formatPreview(task, timezone), { parse_mode: 'Markdown', ...confirmButtons });
+      return saveAndReply(ctx, userId, batchTasks[0], timezone);
     }
     const state = { batchTasks, batchIndex: 0, batchCreated: [] };
     pendingTasks.set(userId, state);
     return require('./tasks').showNextBatchTask(ctx, userId, state, false);
   }
 
-  const task = parsed;
-  if (!task.category) task.category = 'Общее';
-  pendingTasks.set(userId, { task, editingField: null });
-  ctx.reply(formatPreview(task, timezone), { parse_mode: 'Markdown', ...confirmButtons });
+  return saveAndReply(ctx, userId, parsed, timezone);
+}
+
+// Сохраняет задачу немедленно и показывает сообщение с кнопками "Изменить" / "Отменить".
+// Заменяет старый паттерн "превью → подтверждение" для одиночных задач.
+async function saveAndReply(ctx, userId, parsed, timezone) {
+  const task = { ...parsed };
+  if (task.status === 'waiting') {
+    const norm = normalizeWaiting(task.waiting_reason, task.waiting_until);
+    task.waiting_reason = norm.waiting_reason;
+    task.waiting_until  = norm.waiting_until;
+  }
+  if (task.reminder_at) {
+    task.reminder_at = parserReminderToUtc(task.reminder_at, timezone);
+  }
+  const saved = saveTask(userId, task);
+
+  const rows = [];
+  if (!task.subtasks?.length) {
+    rows.push([Markup.button.callback('🤖 Предложить шаги', `ai_steps_${saved.id}`)]);
+  }
+  rows.push([
+    Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`),
+    Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`),
+  ]);
+  return ctx.reply(`✅ *${saved.title}* — сохранено`, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard(rows),
+  });
 }
 
 function handleCreateRecurring(ctx, userId, parsed) {
-  const r = createRecurring(userId, {
-    title: parsed.title,
-    event_time: parsed.event_time,
-    days: parsed.days ?? null,
-    day_of_month: parsed.day_of_month ?? null,
-    reminder_before_minutes: parsed.reminder_before_minutes ?? 0,
+  const recurDays     = parsed.days ? JSON.stringify(parsed.days) : null;
+  const recurDom      = parsed.day_of_month ?? null;
+  const plannedFor    = computeNextOccurrence(recurDays, recurDom, false);
+  const task = saveTask(userId, {
+    title:               parsed.title,
+    status:              'todo',
+    is_recurring:        1,
+    recur_time:          parsed.event_time,
+    recur_days:          recurDays,
+    recur_day_of_month:  recurDom,
+    recur_remind_before: parsed.reminder_before_minutes ?? 0,
+    plannedFor,
   });
-  const schedule = formatSchedule(r);
+  const schedule = formatRecurringSchedule(task);
   return ctx.reply(
-    `✅ Создано повторяющееся напоминание\n🔄 *${r.title}*\n${schedule}\n\nПосмотреть все: /reminders`,
+    `✅ *${task.title}* — добавлено в повторяющиеся\n${schedule}\n\nПосмотреть все: /reminders`,
     { parse_mode: 'Markdown' }
   );
 }

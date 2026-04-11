@@ -250,6 +250,15 @@ function register(bot) {
     }
   });
 
+  // Отмена создания задачи (undo после мгновенного сохранения)
+  bot.action(/^undo_task_(\d+)$/, async (ctx) => {
+    const taskId = Number(ctx.match[1]);
+    const userId = getUser(ctx);
+    deleteTask(taskId, userId);
+    await ctx.answerCbQuery('🗑 Задача удалена');
+    await safeEdit(ctx, '🗑 Отменено.');
+  });
+
   // Отмена
   bot.action('cancel', async (ctx) => {
     const userId = getUser(ctx);
@@ -627,6 +636,24 @@ function register(bot) {
     const userId = getUser(ctx);
     const filter = getFilter(userId);
     filter.includeArchived = true;
+    taskFilters.set(userId, filter);
+    await ctx.answerCbQuery();
+    await renderTaskListFiltered(ctx, userId, filter, true);
+  });
+
+  bot.action('tf_today', async (ctx) => {
+    const userId = getUser(ctx);
+    const filter = getFilter(userId);
+    filter.plannedToday = true;
+    taskFilters.set(userId, filter);
+    await ctx.answerCbQuery();
+    await renderTaskListFiltered(ctx, userId, filter, true);
+  });
+
+  bot.action('tf_clear_today', async (ctx) => {
+    const userId = getUser(ctx);
+    const filter = getFilter(userId);
+    delete filter.plannedToday;
     taskFilters.set(userId, filter);
     await ctx.answerCbQuery();
     await renderTaskListFiltered(ctx, userId, filter, true);
