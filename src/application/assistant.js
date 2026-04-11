@@ -7,6 +7,14 @@ const db = require('../infrastructure/db/connection');
 
 // ─── Рекомендации для /plan ───────────────────────────────────
 
+const DAY_NAMES_RU = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+
+function daysStale(updatedAt) {
+  const updated = new Date(updatedAt);
+  const now = new Date();
+  return Math.floor((now - updated) / 86400000);
+}
+
 async function getPlanRecommendations(userId, date) {
   const { timezone } = getSettings(userId);
   const targetDate = date ?? localNow(timezone);
@@ -15,44 +23,84 @@ async function getPlanRecommendations(userId, date) {
   const plannedTasks = getTasksByPlannedDate(userId, targetDate);
   const plannedIds = new Set(plannedTasks.map(t => t.id));
 
-  const candidates = allTasks.filter(t => !t.planned_for || t.planned_for === targetDate);
-  const unplanned = candidates.filter(t => !plannedIds.has(t.id));
+  // Просроченные: planned_for < today, незакрытые, не в сегодняшнем плане
+  const today = localNow(timezone);
+  const overdue = allTasks.filter(t =>
+    t.planned_for && t.planned_for < today &&
+    !['done', 'deleted'].includes(t.status) &&
+    !t.is_recurring &&
+    !plannedIds.has(t.id)
+  );
 
-  if (!unplanned.length) return [];
+  // Кандидаты: inbox (без даты) + ещё не запланированные на targetDate
+  const candidates = allTasks.filter(t =>
+    !t.planned_for &&
+    !['done', 'deleted'].includes(t.status) &&
+    !t.is_recurring &&
+    !plannedIds.has(t.id)
+  );
+
+  if (!overdue.length && !candidates.length) return [];
 
   const goals = getGoalsWithProgress(userId);
 
-  const tasksText = unplanned.map(t => {
-    const parts = [`[${t.id}] ${t.title}`];
-    if (t.status) parts.push(`статус: ${t.status}`);
-    if (t.waiting_until) parts.push(`ждёт до: ${t.waiting_until}`);
-    if (t.goal_title) parts.push(`цель: ${t.goal_title}`);
-    if (t.updated_at) parts.push(`обновлено: ${t.updated_at.slice(0, 10)}`);
-    return parts.join(', ');
-  }).join('\n');
+  const targetDay = new Date(targetDate + 'T00:00:00');
+  const dayName = DAY_NAMES_RU[targetDay.getDay()];
+  const isWeekend = targetDay.getDay() === 0 || targetDay.getDay() === 6;
 
-  const plansText = goals.length
-    ? goals.map(g => `"${g.title}" (${g.done ?? 0}/${g.total ?? 0} задач)`).join(', ')
+  const goalsText = goals.length
+    ? goals.map(g => `"${g.title}" (${g.done ?? 0}/${g.total ?? 0} задач выполнено)`).join('\n')
     : 'нет активных целей';
 
-  const prompt = `Дата плана: ${targetDate}. Ты — умный помощник по задачам Ordo.
+  function formatTask(t) {
+    const parts = [`[${t.id}] ${t.title}`];
+    if (t.status === 'waiting') {
+      parts.push(t.waiting_until ? `ждёт до: ${t.waiting_until}` : 'ждёт (без даты)');
+      if (t.waiting_reason) parts.push(`причина: ${t.waiting_reason}`);
+    }
+    if (t.goal_title) parts.push(`цель: "${t.goal_title}"`);
+    parts.push(`без изменений: ${daysStale(t.updated_at)} дн.`);
+    if (t.category_name) parts.push(`категория: ${t.category_name}`);
+    return parts.join(', ');
+  }
 
-Задачи которые ещё не запланированы на эту дату:
-${tasksText}
+  const overdueText = overdue.length
+    ? overdue.map(t => {
+        const parts = [`[${t.id}] ${t.title}`];
+        parts.push(`просрочена: было на ${t.planned_for}`);
+        if (t.goal_title) parts.push(`цель: "${t.goal_title}"`);
+        if (t.category_name) parts.push(`категория: ${t.category_name}`);
+        return parts.join(', ');
+      }).join('\n')
+    : null;
 
-Активные планы: ${plansText}
+  const candidatesText = candidates.length
+    ? candidates.map(formatTask).join('\n')
+    : null;
 
-Выбери задачи которые стоит добавить в план на ${targetDate}. Учитывай:
-- задачи со статусом waiting у которых истёк waiting_until
-- задачи которые давно не обновлялись
-- контекст планов (если план важный — его задачи важнее)
-- не перегружай: 3-5 задач максимум
+  const prompt = `Ты — планировщик задач. Помоги составить план на ${targetDate} (${dayName}${isWeekend ? ', выходной' : ', рабочий день'}).
+
+${overdueText ? `## Просроченные задачи (были запланированы, не выполнены)\n${overdueText}\n` : ''}
+${candidatesText ? `## Задачи без даты (inbox)\n${candidatesText}\n` : ''}
+## Активные цели
+${goalsText}
+
+## Уже в плане на этот день: ${plannedTasks.length} задач
+
+## Задача
+Выбери 3–5 задач для плана. Приоритеты по убыванию:
+1. Просроченные задачи — их нужно закрыть или перенести
+2. Waiting-задачи у которых истёк или скоро истекает срок ожидания
+3. Задачи из активных целей с малым прогрессом
+4. Задачи без движения 7+ дней
+5. ${isWeekend ? 'Выходной: предпочитай личные/бытовые задачи рабочим' : 'Рабочий день: рабочие задачи важнее бытовых'}
+
+Не выбирай задачи если план уже содержит 5+ задач — верни пустой массив.
 
 Верни JSON:
 {
   "tasks": [
-    { "id": <id задачи>, "reason": "<почему именно эта задача, 1 строка>" },
-    ...
+    { "id": <число>, "reason": "<конкретная причина: сколько дней без движения, какая цель, почему сейчас>" }
   ]
 }
 
