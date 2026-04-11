@@ -56,13 +56,14 @@ function getUser(ctx) {
   return id;
 }
 
-// Безопасное editMessageText — игнорирует "message is not modified" и "message to edit not found"
+// Безопасное editMessageText — при невозможности редактировать отправляет новое сообщение
 async function safeEdit(ctx, text, opts = {}) {
   try {
     return await ctx.editMessageText(text, opts);
   } catch (e) {
-    if (e.description?.includes('message is not modified')) return;
-    if (e.description?.includes('message to edit not found')) return;
+    if (e.description?.includes('message is not modified'))   return;
+    if (e.description?.includes('message to edit not found')) return ctx.reply(text, opts);
+    if (e.description?.includes("message can't be edited"))   return ctx.reply(text, opts);
     throw e;
   }
 }
