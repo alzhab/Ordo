@@ -44,10 +44,10 @@ describe('updateSettings notion_enabled', () => {
   });
 
   test('другие настройки не затрагиваются при обновлении notion_enabled', () => {
-    settings.updateSettings(USER_ID, { morning_time: '08:00' });
+    settings.updateSettings(USER_ID, { plan_time: '08:00' });
     settings.updateSettings(USER_ID, { notion_enabled: 0 });
     const row = settings.getSettings(USER_ID);
-    expect(row.morning_time).toBe('08:00');
+    expect(row.plan_time).toBe('08:00');
     expect(row.notion_enabled).toBe(0);
   });
 });

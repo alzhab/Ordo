@@ -14,19 +14,51 @@ const { getUser } = require('../../shared/helpers');
 
 const { isConfigured: notionConfigured } = require('../../infrastructure/integrations/notion');
 const { buildSettingsText, buildSettingsKeyboard } = require('./handlers/settings');
+const { getTasks } = require('../../application/tasks');
 
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
 // ─── Команды ─────────────────────────────────────────────
 
-bot.start((ctx) => {
-  getUser(ctx);
-  ctx.reply(
-    'Привет! 👋 Я помогу создавать задачи.\n\n' +
-    'Отправь голосовое сообщение или напиши задачу текстом.\n\n' +
-    'Пример: «Купить провод для ремонта, категория дом, срок эти выходные»\n\n' +
-    '/tasks — список задач'
-  );
+bot.start(async (ctx) => {
+  const userId   = getUser(ctx);
+  const firstName = ctx.from.first_name ?? 'друг';
+  const isNew    = getTasks(userId, {}).length === 0;
+
+  if (isNew) {
+    await ctx.reply(
+      `👋 Привет, ${firstName}!\n\n` +
+      `Я — *Ordo*, твой личный ассистент задач.\n\n` +
+      `*Как это работает:*\n` +
+      `📥 Напиши или скажи задачу — запишу без лишних полей\n` +
+      `📅 Каждое утро пришлю план на день\n` +
+      `🔍 Каждый вечер разберём что зависло\n\n` +
+      `*Попробуй прямо сейчас* — напиши любую задачу или отправь голосовое:\n` +
+      `_"Купить молоко", "Позвонить маме завтра", "Записаться к врачу в четверг"_`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('⚙️ Настроить время напоминаний', 'onb_settings')],
+        ]),
+      }
+    );
+  } else {
+    await ctx.reply(
+      `С возвращением, ${firstName}! 👋\n\n` +
+      `Напиши или скажи задачу, или выбери команду:\n` +
+      `/plan — план на сегодня\n` +
+      `/tasks — список задач\n` +
+      `/review — разбор зависших`
+    );
+  }
+});
+
+// Онбординг — открыть настройки
+bot.action('onb_settings', async (ctx) => {
+  const userId = getUser(ctx);
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  await ctx.reply(buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
 });
 
 bot.help((ctx) => {

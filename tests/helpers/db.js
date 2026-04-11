@@ -66,10 +66,10 @@ function createTestDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_settings (
       user_id         INTEGER PRIMARY KEY REFERENCES users(id),
-      morning_time    TEXT    NOT NULL DEFAULT '09:00',
-      evening_time    TEXT    NOT NULL DEFAULT '21:00',
+      plan_time       TEXT    NOT NULL DEFAULT '09:00',
+      review_time     TEXT    NOT NULL DEFAULT '21:00',
       timezone        TEXT    NOT NULL DEFAULT 'Asia/Oral',
-      morning_enabled INTEGER NOT NULL DEFAULT 1,
+      plan_enabled    INTEGER NOT NULL DEFAULT 1,
       review_enabled  INTEGER NOT NULL DEFAULT 1,
       quiet_until     TEXT,
       notion_enabled  INTEGER NOT NULL DEFAULT 1,

@@ -22,7 +22,13 @@ const CAL_MONTH_NAMES = [
   'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь',
 ];
 
-function buildCalendarKeyboard(year, month) {
+function buildCalendarKeyboard(year, month, {
+  pickPrefix  = 'cal_pick_',
+  navPrefix   = 'cal_nav_',
+  noopAction  = 'cal_noop',
+  closeAction = 'cal_close',
+  closeLabel  = '✖️ К плану',
+} = {}) {
   const todayStr = new Date().toISOString().split('T')[0];
   const [ty, tm] = todayStr.split('-').map(Number);
 
@@ -31,20 +37,19 @@ function buildCalendarKeyboard(year, month) {
   const pStr = `${pY}_${String(pM).padStart(2, '0')}`;
   const nStr = `${nY}_${String(nM).padStart(2, '0')}`;
 
-  // Разрешаем: 1 месяц назад и 3 месяца вперёд
   const canPrev = pY > ty || (pY === ty && pM >= tm - 1);
   const canNext = nY < ty || (nY === ty && nM <= tm + 3) || (nY === ty + 1 && tm >= 10);
 
   const navRow = [
-    Markup.button.callback(canPrev ? '◀️' : ' ', canPrev ? `cal_nav_${pStr}` : 'cal_noop'),
-    Markup.button.callback(`${CAL_MONTH_NAMES[month - 1]} ${year}`, 'cal_noop'),
-    Markup.button.callback(canNext ? '▶️' : ' ', canNext ? `cal_nav_${nStr}` : 'cal_noop'),
+    Markup.button.callback(canPrev ? '◀️' : ' ', canPrev ? `${navPrefix}${pStr}` : noopAction),
+    Markup.button.callback(`${CAL_MONTH_NAMES[month - 1]} ${year}`, noopAction),
+    Markup.button.callback(canNext ? '▶️' : ' ', canNext ? `${navPrefix}${nStr}` : noopAction),
   ];
 
   const headerRow = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
-    .map(d => Markup.button.callback(d, 'cal_noop'));
+    .map(d => Markup.button.callback(d, noopAction));
 
-  const firstDow   = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Пн=0
+  const firstDow    = (new Date(year, month - 1, 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, month, 0).getDate();
   const cells = [
     ...Array(firstDow).fill(null),
@@ -56,21 +61,21 @@ function buildCalendarKeyboard(year, month) {
   for (let i = 0; i < cells.length; i += 7) {
     weeks.push(
       cells.slice(i, i + 7).map(day => {
-        if (!day) return Markup.button.callback(' ', 'cal_noop');
+        if (!day) return Markup.button.callback(' ', noopAction);
         const ds = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const past    = ds < todayStr;
         const isToday = ds === todayStr;
         const label   = isToday ? `·${day}·` : String(day);
         return past
-          ? Markup.button.callback(label, 'cal_noop')
-          : Markup.button.callback(label, `cal_pick_${ds}`);
+          ? Markup.button.callback(label, noopAction)
+          : Markup.button.callback(label, `${pickPrefix}${ds}`);
       })
     );
   }
 
   return Markup.inlineKeyboard([
     navRow, headerRow, ...weeks,
-    [Markup.button.callback('✖️ К плану', 'cal_close')],
+    [Markup.button.callback(closeLabel, closeAction)],
   ]);
 }
 
@@ -139,13 +144,15 @@ async function renderPlanSummary(ctx, userId) {
   if (plannedIds.length) {
     lines.push(`✅ Запланировано: *${plannedIds.length}*`);
     buttons.push([Markup.button.callback(`📋 Запланировано (${plannedIds.length})`, 'plan_open_planned')]);
-  } else {
-    lines.push('_Ничего не запланировано._');
   }
 
   if (suggestions.length) {
     lines.push(`🤖 Рекомендует AI: *${suggestions.length}*`);
     buttons.push([Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions')]);
+  }
+
+  if (!plannedIds.length && !suggestions.length) {
+    lines.push('_Задач нет. Напиши или скажи что нужно сделать — я запишу._');
   }
 
   buttons.push([Markup.button.callback('📅 Другой день', 'plan_pick_date')]);
@@ -324,8 +331,8 @@ async function renderReviewSlider(ctx, userId) {
   } else if (category === 'inbox') {
     text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?\n${counter}`;
     buttons = [
-      [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('⏭ Отложить', `rv_snooze_${task.id}`)],
-      [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
+      [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('📅 Выбрать дату', `rv_pick_date_${task.id}`)],
+      [Markup.button.callback('⏭ Отложить', `rv_snooze_${task.id}`), Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
       nav,
     ];
   } else {
@@ -603,6 +610,71 @@ function register(bot) {
     snoozeTask(id);
   }, '⏸ Напомню через 3 дня'));
   bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                     '📅 На завтра'));
+
+  // Review inbox — открыть календарь для выбора даты
+  bot.action(/^rv_pick_date_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const taskId = parseInt(ctx.match[1]);
+    const state  = pendingTasks.get(userId) ?? {};
+    state.reviewCalTaskId = taskId;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    const now = new Date();
+    await safeEdit(ctx, '📅 *Выбери дату:*', {
+      parse_mode: 'Markdown',
+      ...buildCalendarKeyboard(now.getFullYear(), now.getMonth() + 1, {
+        pickPrefix:  'rvcal_pick_',
+        navPrefix:   'rvcal_nav_',
+        noopAction:  'rvcal_noop',
+        closeAction: 'rvcal_close',
+        closeLabel:  '✖️ К задаче',
+      }),
+    });
+  });
+
+  // Review calendar — навигация по месяцам
+  bot.action(/^rvcal_nav_(\d{4})_(\d{2})$/, async (ctx) => {
+    const year  = parseInt(ctx.match[1]);
+    const month = parseInt(ctx.match[2]);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, '📅 *Выбери дату:*', {
+      parse_mode: 'Markdown',
+      ...buildCalendarKeyboard(year, month, {
+        pickPrefix:  'rvcal_pick_',
+        navPrefix:   'rvcal_nav_',
+        noopAction:  'rvcal_noop',
+        closeAction: 'rvcal_close',
+        closeLabel:  '✖️ К задаче',
+      }),
+    });
+  });
+
+  // Review calendar — выбор даты → поставить planned_for и перейти к следующей задаче
+  bot.action(/^rvcal_pick_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const date   = ctx.match[1];
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    const taskId = state?.reviewCalTaskId;
+    if (!taskId) return ctx.answerCbQuery('Сессия устарела');
+    updateTask(taskId, { planned_for: date }, userId);
+    delete state.reviewCalTaskId;
+    await ctx.answerCbQuery(`📅 Запланировано на ${date}`);
+    if (state.reviewSlider) {
+      state.reviewSlider.index++;
+      pendingTasks.set(userId, state);
+      await renderReviewSlider(ctx, userId);
+    }
+  });
+
+  // Review calendar — закрыть, вернуться к текущей задаче в слайдере
+  bot.action('rvcal_close', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await renderReviewSlider(ctx, userId);
+  });
+
+  // Review calendar — заглушка для пустых ячеек и заголовка
+  bot.action('rvcal_noop', ctx => ctx.answerCbQuery());
 
   // Recurring — удаление (soft delete задачи)
   bot.action(/^rec_del_(\d+)$/, ctx => {
