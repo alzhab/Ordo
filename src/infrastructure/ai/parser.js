@@ -244,19 +244,19 @@ reminder_before_minutes — за сколько минут до event_time пр�
 Если intent = "manage_settings", верни:
 {
   "intent": "manage_settings",
-  "action": "set_morning_time" | "set_evening_time" | "set_quiet_mode" | "disable_morning" | "enable_morning" | "disable_review" | "enable_review" | "disable_all" | "enable_all",
+  "action": "set_plan_time" | "set_review_time" | "set_quiet_mode" | "disable_plan" | "enable_plan" | "disable_review" | "enable_review" | "disable_all" | "enable_all",
   "time": "HH:MM" | null,
   "until": ISO datetime string | null
 }
 Примеры manage_settings:
-- "поставь план на 8 утра" / "присылай утренний план в 8" → action: "set_morning_time", time: "08:00"
-- "вечерний разбор в 22:00" → action: "set_evening_time", time: "22:00"
+- "поставь план на 8 утра" / "присылай план в 8" → action: "set_plan_time", time: "08:00"
+- "разбор в 22:00" / "присылай разбор в 22" → action: "set_review_time", time: "22:00"
 - "не беспокой до завтра" → action: "set_quiet_mode", until: <завтра 09:00>
 - "не беспокой до воскресенья" → action: "set_quiet_mode", until: <ближайшее воскресенье 09:00>
-- "выключи утренний план" → action: "disable_morning"
-- "включи утренний план" → action: "enable_morning"
-- "выключи вечерний разбор" → action: "disable_review"
-- "включи вечерний разбор" → action: "enable_review"
+- "выключи план" / "не присылай план" → action: "disable_plan"
+- "включи план" → action: "enable_plan"
+- "выключи разбор" / "не присылай разбор" → action: "disable_review"
+- "включи разбор" → action: "enable_review"
 - "выключи все напоминания" → action: "disable_all"
 - "включи напоминания" → action: "enable_all"
 

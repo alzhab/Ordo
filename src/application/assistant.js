@@ -5,9 +5,9 @@ const { getSettings } = require('./settings');
 const { localNow } = require('../shared/helpers');
 const db = require('../infrastructure/db/connection');
 
-// ─── Утренний план ────────────────────────────────────────────
+// ─── Рекомендации для /plan ───────────────────────────────────
 
-async function getMorningPlan(userId, date) {
+async function getPlanRecommendations(userId, date) {
   const { timezone } = getSettings(userId);
   const targetDate = date ?? localNow(timezone);
 
@@ -62,7 +62,7 @@ ${tasksText}
   return json.tasks ?? [];
 }
 
-// ─── Вечерний разбор ─────────────────────────────────────────
+// ─── Данные для /review ───────────────────────────────────────
 
 // Возвращает задачи по категориям для сводной карточки /review.
 // Каждая категория — отдельный массив, без лимитов (показываем всё).
@@ -102,15 +102,12 @@ function getReviewData(userId) {
     ORDER BY updated_at ASC
   `).all(userId, threeDaysAgo);
 
-  // maybe: висит 7+ дней
-  const maybe = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'maybe'
-    AND date(updated_at) <= date('now', '-7 days')
-    ORDER BY updated_at ASC
-  `).all(userId);
+  const doneToday = db.prepare(`
+    SELECT COUNT(*) as cnt FROM tasks
+    WHERE user_id = ? AND status = 'done' AND date(updated_at) = ?
+  `).get(userId, today).cnt;
 
-  return { unclosed, waiting, inbox, maybe };
+  return { unclosed, waiting, inbox, doneToday };
 }
 
 // ─── Прогресс ─────────────────────────────────────────────────
@@ -146,4 +143,4 @@ function getProgress(userId) {
   return { doneToday, doneWeek, plans, stale };
 }
 
-module.exports = { getMorningPlan, getReviewData, getProgress };
+module.exports = { getPlanRecommendations, getReviewData, getProgress };

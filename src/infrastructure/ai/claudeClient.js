@@ -1,5 +1,5 @@
 // Тонкая обёртка над Anthropic SDK для простых запросов без system промпта.
-// Используется в application/assistant.js для getMorningPlan и др.
+// Используется в application/assistant.js для getPlanRecommendations и др.
 //
 // Не используется в parser.js — там нужен system промпт с контекстом пользователя,
 // который в этот интерфейс не вписывается.

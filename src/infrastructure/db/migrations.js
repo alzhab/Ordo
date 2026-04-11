@@ -144,6 +144,11 @@ try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAU
 // Переименование: due_date → planned_for (семантика изменилась: не дедлайн, а дата плана)
 try { db.exec(`ALTER TABLE tasks RENAME COLUMN due_date TO planned_for`); } catch {}
 
+// Статус 'maybe' удалён — конвертируем в 'todo'
+try {
+  db.prepare(`UPDATE tasks SET status = 'todo' WHERE status = 'maybe'`).run();
+} catch (e) { console.error('[db] maybe migration error:', e.message); }
+
 // Поля повторяющихся задач (перенесены из recurrent_tasks)
 try { db.exec(`ALTER TABLE tasks ADD COLUMN is_recurring        INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE tasks ADD COLUMN recur_days          TEXT`); } catch {}
@@ -225,3 +230,11 @@ try {
     db.pragma('foreign_keys = ON');
   }
 } catch (e) { console.error('[db] tasks rebuild error:', e.message); }
+
+// ─── Переименование колонок настроек (morning → plan, evening → review) ──
+try { db.exec(`ALTER TABLE user_settings RENAME COLUMN morning_time    TO plan_time`);    } catch {}
+try { db.exec(`ALTER TABLE user_settings RENAME COLUMN morning_enabled TO plan_enabled`); } catch {}
+try { db.exec(`ALTER TABLE user_settings RENAME COLUMN evening_time    TO review_time`);  } catch {}
+
+// Переименование типа 'morning' → 'plan' в логе уведомлений
+try { db.prepare(`UPDATE notification_log SET type = 'plan' WHERE type = 'morning'`).run(); } catch {}

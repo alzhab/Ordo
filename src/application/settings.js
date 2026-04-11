@@ -1,6 +1,6 @@
 const db = require('../infrastructure/db/connection');
 
-const ALLOWED_FIELDS = ['morning_time', 'evening_time', 'timezone', 'morning_enabled', 'review_enabled', 'quiet_until', 'notion_enabled'];
+const ALLOWED_FIELDS = ['plan_time', 'review_time', 'timezone', 'plan_enabled', 'review_enabled', 'quiet_until', 'notion_enabled'];
 
 function getSettings(userId) {
   let row = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(userId);

@@ -1,9 +1,9 @@
 const { Markup } = require('telegraf');
 const { getUser } = require('../../../shared/helpers');
-const { getMorningPlan, getReviewData, getProgress } = require('../../../application/assistant');
+const { getPlanRecommendations, getReviewData, getProgress } = require('../../../application/assistant');
 const { logNotification, wasNotifiedToday } = require('../../../application/notifications');
 const { isQuietMode } = require('../../../application/settings');
-const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate } = require('../../../application/tasks');
+const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate, snoozeTask } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
 const { formatRecurringSchedule } = require('../formatters');
@@ -81,7 +81,7 @@ function buildCalendarKeyboard(year, month) {
   ]);
 }
 
-// ─── /morning ────────────────────────────────────────────────
+// ─── /plan ───────────────────────────────────────────────────
 
 function formatDateLabel(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -96,12 +96,12 @@ function addDays(n) {
   return d.toISOString().split('T')[0];
 }
 
-async function handleMorning(ctx) {
+async function handlePlan(ctx) {
   getUser(ctx);
-  await handleMorningForDate(ctx, addDays(0));
+  await handlePlanForDate(ctx, addDays(0));
 }
 
-async function handleMorningForDate(ctx, date) {
+async function handlePlanForDate(ctx, date) {
   const userId = ctx.from.id;
   if (ctx.callbackQuery) {
     await safeEdit(ctx, `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`, { parse_mode: 'Markdown' });
@@ -111,7 +111,7 @@ async function handleMorningForDate(ctx, date) {
 
   let aiSuggestions = [];
   try {
-    const items = await getMorningPlan(userId, date);
+    const items = await getPlanRecommendations(userId, date);
     aiSuggestions = items
       .map(({ id, reason }) => getTaskById(id) ? { id, reason } : null)
       .filter(Boolean);
@@ -119,7 +119,7 @@ async function handleMorningForDate(ctx, date) {
     console.error('[plan]', e.message);
   }
 
-  logNotification(userId, 'morning');
+  logNotification(userId, 'plan');
 
   const state = pendingTasks.get(userId) ?? {};
   state.planData = {
@@ -228,14 +228,13 @@ const RV_LABELS = {
   unclosed: '📅 Из плана',
   waiting:  '⏸ В ожидании',
   inbox:    '📋 Без даты',
-  maybe:    '💭 Может быть',
 };
 
 // Строит и показывает сводную карточку. При reply=true отправляет новое сообщение,
 // при reply=false редактирует текущее (после возврата из слайдера).
 async function renderReviewSummary(ctx, userId, reply = false) {
   const data = getReviewData(userId);
-  const total = data.unclosed.length + data.waiting.length + data.inbox.length + data.maybe.length;
+  const total = data.unclosed.length + data.waiting.length + data.inbox.length;
 
   if (total === 0) {
     const text = '✅ Зависших задач нет. Всё под контролем!';
@@ -248,7 +247,6 @@ async function renderReviewSummary(ctx, userId, reply = false) {
     unclosed: data.unclosed.map(t => t.id),
     waiting:  data.waiting.map(t => t.id),
     inbox:    data.inbox.map(t => t.id),
-    maybe:    data.maybe.map(t => t.id),
   };
   pendingTasks.set(userId, state);
 
@@ -267,11 +265,9 @@ async function renderReviewSummary(ctx, userId, reply = false) {
     lines.push(`📋 Без даты: *${data.inbox.length}*`);
     buttons.push([Markup.button.callback(`📋 Без даты (${data.inbox.length})`, 'rv_open_inbox')]);
   }
-  if (data.maybe.length) {
-    lines.push(`💭 Может быть: *${data.maybe.length}*`);
-    buttons.push([Markup.button.callback(`💭 Может быть (${data.maybe.length})`, 'rv_open_maybe')]);
+  if (data.doneToday > 0) {
+    lines.push(`\n✅ Выполнено сегодня: *${data.doneToday}*`);
   }
-
   const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) };
   return reply ? ctx.reply(lines.join('\n'), opts) : safeEdit(ctx, lines.join('\n'), opts);
 }
@@ -330,7 +326,7 @@ async function renderReviewSlider(ctx, userId) {
   } else if (category === 'inbox') {
     text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?\n${counter}`;
     buttons = [
-      [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('💭 В maybe', `rv_maybe_${task.id}`)],
+      [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('⏭ Отложить', `rv_snooze_${task.id}`)],
       [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
       nav,
     ];
@@ -413,17 +409,16 @@ async function handleReminders(ctx) {
 }
 
 function register(bot) {
-  bot.command('plan', handleMorning);
-  bot.command('morning', handleMorning); // backwards compat
+  bot.command('plan', handlePlan);
+  bot.command('morning', handlePlan); // backwards compat
   bot.command('review', handleReview);
-  bot.command('progress', handleProgress);
   bot.command('reminders', handleReminders);
 
   // Morning — старый выбор даты (для обратной совместимости с pending сообщениями)
   bot.action(/^mplan_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
     getUser(ctx);
     await ctx.answerCbQuery();
-    await handleMorningForDate(ctx, ctx.match[1]);
+    await handlePlanForDate(ctx, ctx.match[1]);
   });
 
   // Calendar — открыть пикер для текущего месяца
@@ -450,7 +445,7 @@ function register(bot) {
   // Calendar — выбор дня → загрузить план
   bot.action(/^cal_pick_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
     await ctx.answerCbQuery();
-    await handleMorningForDate(ctx, ctx.match[1]);
+    await handlePlanForDate(ctx, ctx.match[1]);
   });
 
   // Calendar — заглушка для нажатия на пустые ячейки
@@ -552,7 +547,7 @@ function register(bot) {
   });
 
   // Review — открыть слайдер категории
-  bot.action(/^rv_open_(unclosed|waiting|inbox|maybe)$/, async (ctx) => {
+  bot.action(/^rv_open_(unclosed|waiting|inbox)$/, async (ctx) => {
     const category = ctx.match[1];
     const userId   = getUser(ctx);
     const state    = pendingTasks.get(userId) ?? {};
@@ -613,10 +608,10 @@ function register(bot) {
 
   bot.action(/^rv_done_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'done' }, uid),                               '✅ Готово'));
   bot.action(/^rv_todo_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'todo', waiting_reason: null, waiting_until: null }, uid), '▶️ Взято в работу'));
-  bot.action(/^rv_maybe_(\d+)$/,    rvAction((id, uid) => updateTask(id, { status: 'maybe' }, uid),                              '💭 В может быть'));
-  bot.action(/^rv_del_(\d+)$/,      rvAction((id, uid) => deleteTask(id, uid),                                                   '🗑 Удалено'));
-  bot.action(/^rv_keep_(\d+)$/,     rvAction(() => {},                                                                           '⏸ Оставлено'));
-  bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                      '📅 На завтра'));
+  bot.action(/^rv_snooze_(\d+)$/,  rvAction((id)      => snoozeTask(id),                                                        '⏭ Отложено на 3 дня'));
+  bot.action(/^rv_del_(\d+)$/,     rvAction((id, uid) => deleteTask(id, uid),                                                   '🗑 Удалено'));
+  bot.action(/^rv_keep_(\d+)$/,    rvAction(() => {},                                                                           '⏸ Оставлено'));
+  bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                     '📅 На завтра'));
 
   // Recurring — удаление (soft delete задачи)
   bot.action(/^rec_del_(\d+)$/, ctx => {
@@ -629,4 +624,4 @@ function register(bot) {
   });
 }
 
-module.exports = { register, handleMorning, handleReview };
+module.exports = { register, handlePlan, handleReview };

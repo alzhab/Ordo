@@ -139,6 +139,7 @@ const {
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,
+  snoozeTask,
 } = taskRepo;
 
 module.exports = {
@@ -156,5 +157,6 @@ module.exports = {
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,
+  snoozeTask,
   syncAllTasks,
 };

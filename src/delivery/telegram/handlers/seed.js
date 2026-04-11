@@ -47,8 +47,8 @@ async function handleSeed(ctx) {
     // Waiting без даты, создана 4 дня назад (поднимется в /review)
     { title: 'Договориться с подрядчиком', status: 'waiting', waiting_reason: 'Он должен перезвонить', category: cat, _created_ago: 4 },
 
-    // Maybe, создана 10 дней назад (поднимется в /review)
-    { title: 'Выучить испанский', status: 'maybe', category: cat, _created_ago: 10 },
+    // Todo без даты, создана 10 дней назад (поднимется в /review → inbox)
+    { title: 'Выучить испанский', status: 'todo', category: cat, _created_ago: 10 },
 
     // Todo с подзадачами
     { title: 'Подготовить презентацию', status: 'todo', category: cat, _subtasks: ['Собрать данные', 'Сделать слайды', 'Прорепетировать'] },

@@ -277,8 +277,36 @@ function parseReminderDatetime(text, timezone) {
   return null;
 }
 
+// Парсит время из свободного текста. Возвращает "HH:MM" или null.
+// Примеры: "9 утра", "в 21:00", "8:30", "в 9 вечера"
+function parseTimeInput(text) {
+  const t = text.toLowerCase().trim();
+  const colonTime = t.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (colonTime) {
+    const h = parseInt(colonTime[1]);
+    if (h >= 0 && h <= 23) return `${String(h).padStart(2,'0')}:${colonTime[2]}`;
+  }
+  const morningMatch = t.match(/(\d{1,2})\s*утра/);
+  if (morningMatch) {
+    const h = parseInt(morningMatch[1]);
+    if (h >= 1 && h <= 12) return `${String(h).padStart(2,'0')}:00`;
+  }
+  const eveningMatch = t.match(/(\d{1,2})\s*(вечера|ночи)/);
+  if (eveningMatch) {
+    const h = parseInt(eveningMatch[1]);
+    return `${String(h < 12 ? h + 12 : h).padStart(2,'0')}:00`;
+  }
+  const bareHour = t.match(/^в?\s*(\d{1,2})$/);
+  if (bareHour) {
+    const h = parseInt(bareHour[1]);
+    if (h >= 0 && h <= 23) return `${String(h).padStart(2,'0')}:00`;
+  }
+  return null;
+}
+
 module.exports = {
   getUser, safeEdit, safeDelete,
   localNow, utcToLocal, localToUtc, parserReminderToUtc,
   parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime,
+  parseTimeInput,
 };

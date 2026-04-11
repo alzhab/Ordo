@@ -46,7 +46,7 @@ function archiveGoal(id) {
 
 // Возвращает цели с агрегированными счётчиками задач.
 // total — все задачи кроме deleted, done — только выполненные.
-// Используется в /progress и в getMorningPlan для контекста AI.
+// Используется в /plan (getPlanRecommendations) для контекста AI.
 function getGoalsWithProgress(userId) {
   return db.prepare(`
     SELECT g.*,

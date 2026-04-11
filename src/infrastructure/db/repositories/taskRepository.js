@@ -223,6 +223,12 @@ function getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth) {
   });
 }
 
+// Сбрасывает updated_at на сейчас чтобы задача исчезла из /review на N дней.
+function snoozeTask(id) {
+  db.prepare(`UPDATE tasks SET updated_at = datetime('now') WHERE id = ?`).run(id);
+  return getTaskById(id);
+}
+
 // Сдвигает planned_for на следующее срабатывание после того как задача сработала.
 function advanceRecurring(taskId) {
   const task = getTaskById(taskId);
@@ -245,4 +251,5 @@ module.exports = {
   getRecurringDueNow,
   advanceRecurring,
   computeNextOccurrence,
+  snoozeTask,
 };

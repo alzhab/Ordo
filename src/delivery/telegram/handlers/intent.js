@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal } = require('../../../shared/helpers');
+const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal, parseTimeInput } = require('../../../shared/helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../../../shared/state');
 const { getSettings, updateSettings } = require('../../../application/settings');
 const { formatRecurringSchedule } = require('../formatters');
@@ -364,6 +364,22 @@ async function handleText(ctx, text) {
     });
   }
 
+  // Ввод времени уведомления (план или разбор)
+  if (state?.awaitingSettingInput) {
+    const field = state.awaitingSettingInput;
+    delete state.awaitingSettingInput;
+    pendingTasks.set(userId, state);
+    const time = parseTimeInput(text);
+    if (!time) {
+      return ctx.reply('Не понял время. Попробуй: `9:00`, `21:30`, `в 8 утра`', { parse_mode: 'Markdown' });
+    }
+    updateSettings(userId, { [field]: time });
+    const label = field === 'plan_time' ? '📋 /plan' : '🔍 /review';
+    await ctx.reply(`✅ ${label} теперь в *${time}*`, { parse_mode: 'Markdown' });
+    const { renderNotificationsSettings } = require('./settings');
+    return renderNotificationsSettings(ctx, userId, false);
+  }
+
   // Создание категории через текст
   if (state?.creatingCategory) {
     delete state.creatingCategory;
@@ -498,13 +514,13 @@ function handleManageSettings(ctx, userId, parsed) {
   const { action, time, until } = parsed;
 
   switch (action) {
-    case 'set_morning_time':
-      updateSettings(userId, { morning_time: time });
-      return ctx.reply(`✅ Утренний план теперь в *${time}*`, { parse_mode: 'Markdown' });
+    case 'set_plan_time':
+      updateSettings(userId, { plan_time: time });
+      return ctx.reply(`✅ /plan теперь в *${time}*`, { parse_mode: 'Markdown' });
 
-    case 'set_evening_time':
-      updateSettings(userId, { evening_time: time });
-      return ctx.reply(`✅ Вечерний разбор теперь в *${time}*`, { parse_mode: 'Markdown' });
+    case 'set_review_time':
+      updateSettings(userId, { review_time: time });
+      return ctx.reply(`✅ /review теперь в *${time}*`, { parse_mode: 'Markdown' });
 
     case 'set_quiet_mode': {
       const untilStr = until || new Date(Date.now() + 86400000).toISOString();
@@ -514,28 +530,28 @@ function handleManageSettings(ctx, userId, parsed) {
       return ctx.reply(`🔕 Тихий режим до ${fmt}. Напоминания не приду.`);
     }
 
-    case 'disable_morning':
-      updateSettings(userId, { morning_enabled: 0 });
-      return ctx.reply('🔕 Утренний план отключён. Включить: напиши "включи утренний план".');
+    case 'disable_plan':
+      updateSettings(userId, { plan_enabled: 0 });
+      return ctx.reply('🔕 /plan отключён. Включить: напиши "включи план".');
 
-    case 'enable_morning':
-      updateSettings(userId, { morning_enabled: 1 });
-      return ctx.reply('✅ Утренний план включён.');
+    case 'enable_plan':
+      updateSettings(userId, { plan_enabled: 1 });
+      return ctx.reply('✅ /plan включён.');
 
     case 'disable_review':
       updateSettings(userId, { review_enabled: 0 });
-      return ctx.reply('🔕 Вечерний разбор отключён.');
+      return ctx.reply('🔕 /review отключён.');
 
     case 'enable_review':
       updateSettings(userId, { review_enabled: 1 });
-      return ctx.reply('✅ Вечерний разбор включён.');
+      return ctx.reply('✅ /review включён.');
 
     case 'disable_all':
-      updateSettings(userId, { morning_enabled: 0, review_enabled: 0 });
+      updateSettings(userId, { plan_enabled: 0, review_enabled: 0 });
       return ctx.reply('🔕 Все автоматические уведомления отключены.');
 
     case 'enable_all':
-      updateSettings(userId, { morning_enabled: 1, review_enabled: 1, quiet_until: null });
+      updateSettings(userId, { plan_enabled: 1, review_enabled: 1, quiet_until: null });
       return ctx.reply('✅ Все уведомления включены.');
 
     default:

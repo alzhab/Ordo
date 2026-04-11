@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const db = require('../../infrastructure/db/connection');
 const { wasNotifiedToday, isQuietMode } = require('../../application/settings');
-const { handleMorning, handleReview } = require('./handlers/assistant');
+const { handlePlan, handleReview } = require('./handlers/assistant');
 const { getRecurringDueNow, getDueReminders } = require('../../application/notifications');
 const { updateTask, advanceRecurring } = require('../../application/tasks');
 
@@ -9,9 +9,9 @@ const { updateTask, advanceRecurring } = require('../../application/tasks');
 function getActiveUsers() {
   // Пользователь активен если писал боту последние 7 дней
   return db.prepare(`
-    SELECT u.id, COALESCE(s.morning_time, '09:00') AS morning_time,
-           COALESCE(s.evening_time, '21:00') AS evening_time,
-           COALESCE(s.morning_enabled, 1) AS morning_enabled,
+    SELECT u.id, COALESCE(s.plan_time, '09:00') AS plan_time,
+           COALESCE(s.review_time, '21:00') AS review_time,
+           COALESCE(s.plan_enabled, 1) AS plan_enabled,
            COALESCE(s.review_enabled, 1) AS review_enabled,
            s.quiet_until
     FROM users u
@@ -119,20 +119,20 @@ function start(bot) {
         // Тихий режим
         if (user.quiet_until && new Date(user.quiet_until) > new Date()) continue;
 
-        // Утренний план
+        // /plan
         if (
-          user.morning_enabled &&
-          currentTime === user.morning_time &&
-          !wasNotifiedToday(user.id, 'morning')
+          user.plan_enabled &&
+          currentTime === user.plan_time &&
+          !wasNotifiedToday(user.id, 'plan')
         ) {
           const ctx = makeFakeCtx(bot, user.id);
-          await handleMorning(ctx);
+          await handlePlan(ctx);
         }
 
-        // Вечерний разбор
+        // /review
         if (
           user.review_enabled &&
-          currentTime === user.evening_time &&
+          currentTime === user.review_time &&
           !wasNotifiedToday(user.id, 'review')
         ) {
           const ctx = makeFakeCtx(bot, user.id);
