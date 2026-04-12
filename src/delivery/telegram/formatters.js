@@ -62,7 +62,7 @@ function formatTaskDetail(t, timezone) {
     if (t.waiting_until)  lines.push(`*До:* ${formatWaitingUntil(t.waiting_until)}`);
   }
   if (t.category_name) lines.push(`*Категория:* ${t.category_name}`);
-  if (t.planned_for)   lines.push(`*Запланировано:* ${t.planned_for}`);
+  if (!t.is_recurring && t.planned_for) lines.push(`*Запланировано:* ${t.planned_for}`);
   if (t.description)   lines.push(`*Описание:* ${t.description}`);
   if (t.goal_title)    lines.push(`*Цель:* ${t.goal_title}`);
   const subtasks = getSubtasks(t.id);

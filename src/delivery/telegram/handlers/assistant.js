@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
-const { getUser } = require('../../../shared/helpers');
+const { getUser, localNow } = require('../../../shared/helpers');
 const { getPlanRecommendations, getReviewData } = require('../../../application/assistant');
-const { isQuietMode } = require('../../../application/settings');
+const { isQuietMode, getSettings } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, snoozeTask, advanceRecurring } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
@@ -87,15 +87,17 @@ function formatDateLabel(dateStr) {
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
-function addDays(n) {
-  const d = new Date();
+function localDatePlusDays(timezone, n) {
+  const today = localNow(timezone);
+  const d = new Date(today + 'T00:00:00');
   d.setDate(d.getDate() + n);
   return d.toISOString().split('T')[0];
 }
 
 async function handlePlan(ctx) {
-  getUser(ctx);
-  await handlePlanForDate(ctx, addDays(0));
+  const userId = getUser(ctx);
+  const tz = getSettings(userId).timezone;
+  await handlePlanForDate(ctx, localNow(tz));
 }
 
 async function handlePlanForDate(ctx, date) {
@@ -411,7 +413,7 @@ function register(bot) {
 
     // State потерян (перезапуск бота) — восстанавливаем запланированные из БД
     if (!state.planData) {
-      const today = addDays(0);
+      const today = localNow(getSettings(userId).timezone);
       const planned = getTasksByPlannedDate(userId, today);
       state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: [] };
       pendingTasks.set(userId, state);
@@ -495,7 +497,19 @@ function register(bot) {
       await renderPlanSlider(ctx, userId);
     }
   });
-  bot.action(/^plan_tomorrow_(\d+)$/, planAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid), '📅 На завтра'));
+  bot.action(/^plan_tomorrow_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    const tomorrow = localDatePlusDays(getSettings(userId).timezone, 1);
+    updateTask(id, { planned_for: tomorrow }, userId);
+    await ctx.answerCbQuery('📅 На завтра');
+    const state = pendingTasks.get(userId);
+    if (state?.planSlider) {
+      state.planSlider.index++;
+      pendingTasks.set(userId, state);
+      await renderPlanSlider(ctx, userId);
+    }
+  });
   bot.action(/^plan_unplan_(\d+)$/,  planAction((id, uid) => updateTask(id, { planned_for: null }, uid),    '❌ Убрано из плана'));
 
   // Plan — добавить рекомендацию в план (обновляет и переходит к следующей)
@@ -616,7 +630,19 @@ function register(bot) {
     if (task?.waiting_until) updateTask(id, { waiting_until: null }, uid);
     snoozeTask(id);
   }, '⏸ Напомню через 3 дня'));
-  bot.action(/^rv_tomorrow_(\d+)$/, rvAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid),                     '📅 На завтра'));
+  bot.action(/^rv_tomorrow_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    const tomorrow = localDatePlusDays(getSettings(userId).timezone, 1);
+    updateTask(id, { planned_for: tomorrow }, userId);
+    await ctx.answerCbQuery('📅 На завтра');
+    const state = pendingTasks.get(userId);
+    if (state?.reviewSlider) {
+      state.reviewSlider.index++;
+      pendingTasks.set(userId, state);
+      await renderReviewSlider(ctx, userId);
+    }
+  });
 
   // Review inbox — открыть календарь для выбора даты
   bot.action(/^rv_pick_date_(\d+)$/, async (ctx) => {
