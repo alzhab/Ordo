@@ -429,7 +429,8 @@ async function handleText(ctx, text) {
   if (parsed.intent === 'manage_goal' || parsed.intent === 'manage_plan') return handleManageGoal(ctx, userId, parsed);
   if (parsed.intent === 'manage_category')   return handleManageCategory(ctx, userId, parsed);
   if (parsed.intent === 'manage_settings')   return handleManageSettings(ctx, userId, parsed);
-  if (parsed.intent === 'create_recurring')  return handleCreateRecurring(ctx, userId, parsed);
+  if (parsed.intent === 'create_recurring')       return handleCreateRecurring(ctx, userId, parsed);
+  if (parsed.intent === 'create_recurring_batch') return handleCreateRecurringBatch(ctx, userId, parsed);
 
   if (parsed.intent === 'create_goal' || parsed.intent === 'create_plan') {
     const goal = createGoal(userId, { title: parsed.title, description: parsed.description });
@@ -464,6 +465,7 @@ async function handleText(ctx, text) {
 // Сохраняет задачу немедленно и показывает сообщение с кнопками "Изменить" / "Отменить".
 // Заменяет старый паттерн "превью → подтверждение" для одиночных задач.
 async function saveAndReply(ctx, userId, parsed, timezone) {
+  if (!parsed.title) return ctx.reply('Не удалось распознать задачу. Попробуй ещё раз.');
   const task = { ...parsed };
   if (task.status === 'waiting') {
     const norm = normalizeWaiting(task.waiting_reason, task.waiting_until);
@@ -489,11 +491,11 @@ async function saveAndReply(ctx, userId, parsed, timezone) {
   });
 }
 
-function handleCreateRecurring(ctx, userId, parsed) {
-  const recurDays     = parsed.days ? JSON.stringify(parsed.days) : null;
-  const recurDom      = parsed.day_of_month ?? null;
-  const plannedFor    = computeNextOccurrence(recurDays, recurDom, false);
-  const task = saveTask(userId, {
+function createRecurringTask(userId, parsed) {
+  const recurDays  = parsed.days ? JSON.stringify(parsed.days) : null;
+  const recurDom   = parsed.day_of_month ?? null;
+  const plannedFor = computeNextOccurrence(recurDays, recurDom, false);
+  return saveTask(userId, {
     title:               parsed.title,
     status:              'todo',
     is_recurring:        1,
@@ -503,11 +505,29 @@ function handleCreateRecurring(ctx, userId, parsed) {
     recur_remind_before: parsed.reminder_before_minutes ?? 0,
     plannedFor,
   });
+}
+
+function handleCreateRecurring(ctx, userId, parsed) {
+  const task     = createRecurringTask(userId, parsed);
   const schedule = formatRecurringSchedule(task);
   return ctx.reply(
-    `✅ *${task.title}* — добавлено в повторяющиеся\n${schedule}\n\nПосмотреть все: /reminders`,
+    `✅ *${task.title}* — повторяющееся\n${schedule}`,
     { parse_mode: 'Markdown' }
   );
+}
+
+function handleCreateRecurringBatch(ctx, userId, parsed) {
+  const items = parsed.recurrings ?? [];
+  if (!items.length) return ctx.reply('Не удалось распознать расписания. Попробуй ещё раз.');
+  const lines = [];
+  for (const item of items) {
+    if (!item.title) continue;
+    const task     = createRecurringTask(userId, item);
+    const schedule = formatRecurringSchedule(task);
+    lines.push(`✅ *${task.title}* — ${schedule}`);
+  }
+  if (!lines.length) return ctx.reply('Не удалось создать напоминания. Попробуй ещё раз.');
+  return ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
 }
 
 function handleManageSettings(ctx, userId, parsed) {
