@@ -178,6 +178,16 @@ function deleteTask(id) {
   return updateTask(id, { status: 'deleted' });
 }
 
+// Еженедельная очистка выполненных задач.
+// Повторяющиеся (is_recurring=1) не трогаем — они живут в вечном цикле.
+// Возвращает количество затронутых строк.
+function cleanupDoneTasks() {
+  return db.prepare(`
+    UPDATE tasks SET status = 'deleted', updated_at = datetime('now')
+    WHERE status = 'done' AND is_recurring = 0
+  `).run().changes;
+}
+
 // Задачи без notion_page_id — кандидаты для первичной синхронизации с Notion
 function getUnsyncedTasks(userId) {
   return db.prepare(`
@@ -251,4 +261,5 @@ module.exports = {
   advanceRecurring,
   computeNextOccurrence,
   snoozeTask,
+  cleanupDoneTasks,
 };

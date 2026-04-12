@@ -683,6 +683,13 @@ function register(bot) {
   // Review calendar — заглушка для пустых ячеек и заголовка
   bot.action('rvcal_noop', ctx => ctx.answerCbQuery());
 
+  // "✅ Сделал" из уведомления повторяющейся задачи.
+  // advanceRecurring уже вызван при отправке — просто убираем кнопку.
+  bot.action(/^rc_done_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery('✅ Отмечено');
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  });
+
 }
 
 module.exports = { register, handlePlan, handleReview };

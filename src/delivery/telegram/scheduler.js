@@ -3,7 +3,7 @@ const db = require('../../infrastructure/db/connection');
 const { wasNotifiedToday, logNotification, getRecurringDueNow, getDueReminders } = require('../../application/notifications');
 const { isQuietMode } = require('../../application/settings');
 const { handlePlan, handleReview } = require('./handlers/assistant');
-const { updateTask, advanceRecurring } = require('../../application/tasks');
+const { updateTask, advanceRecurring, cleanupDoneTasks } = require('../../application/tasks');
 
 // Получить всех активных пользователей с их настройками
 function getActiveUsers() {
@@ -58,9 +58,30 @@ function makeFakeCtx(bot, userId) {
   };
 }
 
+// Отслеживаем дату последней еженедельной очистки чтобы не запускать повторно
+let lastWeeklyCleanup = null;
+
+function runWeeklyCleanup() {
+  const now  = new Date();
+  // Воскресенье (0) в 02:00 UTC
+  if (now.getUTCDay() !== 0 || now.getUTCHours() !== 2) return;
+  const today = now.toISOString().slice(0, 10);
+  if (lastWeeklyCleanup === today) return;
+  lastWeeklyCleanup = today;
+  try {
+    const count = cleanupDoneTasks();
+    console.log(`[scheduler] weekly cleanup: ${count} done tasks deleted`);
+  } catch (e) {
+    console.error('[scheduler] weekly cleanup error:', e.message);
+  }
+}
+
 function start(bot) {
   // Каждую минуту проверяем всех пользователей
   const task = cron.schedule('* * * * *', async () => {
+    // Еженедельная очистка выполненных задач (воскресенье 02:00 UTC)
+    runWeeklyCleanup();
+
     let users;
     try {
       users = getActiveUsers();
@@ -105,9 +126,16 @@ function start(bot) {
         const due = getRecurringDueNow(hhmm, localNow.getDay(), localNow.getDate(), user.id);
         for (const r of due) {
           const text = r.recur_remind_before > 0
-            ? `🔔 Напоминание: *${r.title}* через ${r.recur_remind_before} мин.`
+            ? `🔔 *${r.title}* — через ${r.recur_remind_before} мин.`
             : `🔔 *${r.title}*`;
-          await bot.telegram.sendMessage(r.user_id, text, { parse_mode: 'Markdown' });
+          await bot.telegram.sendMessage(r.user_id, text, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '✅ Сделал', callback_data: `rc_done_${r.id}` },
+              ]],
+            },
+          });
           advanceRecurring(r.id);
         }
       }
