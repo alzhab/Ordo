@@ -49,9 +49,14 @@ function formatTaskText(t, index) {
 }
 
 function formatTaskDetail(t, timezone) {
-  const statusLabel = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании' };
+  const statusLabel = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании', todo: '☐ В очереди' };
   const lines = [`📌 *${t.title}*\n`];
-  lines.push(`*Статус:* ${statusLabel[t.status] ?? t.status}`);
+  if (t.is_recurring) {
+    lines.push(`*Повторяется:* ${formatRecurringSchedule(t)}`);
+    lines.push(`*Следующий раз:* ${t.planned_for ?? '—'}`);
+  } else {
+    lines.push(`*Статус:* ${statusLabel[t.status] ?? t.status}`);
+  }
   if (t.status === 'waiting') {
     if (t.waiting_reason) lines.push(`*Причина:* ${t.waiting_reason}`);
     if (t.waiting_until)  lines.push(`*До:* ${formatWaitingUntil(t.waiting_until)}`);

@@ -2,10 +2,9 @@ const { Markup } = require('telegraf');
 const { getUser } = require('../../../shared/helpers');
 const { getPlanRecommendations, getReviewData } = require('../../../application/assistant');
 const { isQuietMode } = require('../../../application/settings');
-const { getTaskById, updateTask, deleteTask, getTasks, getTasksByPlannedDate, snoozeTask } = require('../../../application/tasks');
+const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, snoozeTask, advanceRecurring } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
-const { formatRecurringSchedule } = require('../formatters');
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -354,37 +353,11 @@ async function handleReview(ctx) {
 
 // ─── Кнопки ──────────────────────────────────────────────────
 
-async function handleReminders(ctx) {
-  getUser(ctx);
-  const userId = ctx.from.id;
-  const items  = getTasks(userId, { isRecurring: true });
-
-  if (!items.length) {
-    return ctx.reply(
-      'Повторяющихся напоминаний нет.\n\nДобавь голосом или текстом:\n"Каждый понедельник в 23:00 созвон, напомни за 30 минут"'
-    );
-  }
-
-  const lines = ['🔄 *Повторяющиеся напоминания:*\n'];
-  items.forEach((r, i) => {
-    lines.push(`${i + 1}. *${r.title}*\n   ${formatRecurringSchedule(r)}`);
-  });
-
-  const buttons = items.map(r => [
-    Markup.button.callback(`🗑 Удалить: ${r.title}`, `rec_del_${r.id}`),
-  ]);
-
-  await ctx.reply(lines.join('\n'), {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard(buttons),
-  });
-}
 
 function register(bot) {
   bot.command('plan', handlePlan);
   bot.command('morning', handlePlan); // backwards compat
   bot.command('review', handleReview);
-  bot.command('reminders', handleReminders);
 
   // Morning — старый выбор даты (для обратной совместимости с pending сообщениями)
   bot.action(/^mplan_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
@@ -504,7 +477,24 @@ function register(bot) {
     };
   }
 
-  bot.action(/^plan_done_(\d+)$/,    planAction((id, uid) => updateTask(id, { status: 'done' }, uid),       '✅ Готово'));
+  bot.action(/^plan_done_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    const task   = getTaskById(id);
+    if (task?.is_recurring) {
+      advanceRecurring(id);
+      await ctx.answerCbQuery('🔄 Цикл обновлён');
+    } else {
+      updateTask(id, { status: 'done' }, userId);
+      await ctx.answerCbQuery('✅ Готово');
+    }
+    const state = pendingTasks.get(userId);
+    if (state?.planSlider) {
+      state.planSlider.index++;
+      pendingTasks.set(userId, state);
+      await renderPlanSlider(ctx, userId);
+    }
+  });
   bot.action(/^plan_tomorrow_(\d+)$/, planAction((id, uid) => updateTask(id, { planned_for: addDays(1) }, uid), '📅 На завтра'));
   bot.action(/^plan_unplan_(\d+)$/,  planAction((id, uid) => updateTask(id, { planned_for: null }, uid),    '❌ Убрано из плана'));
 
@@ -599,7 +589,24 @@ function register(bot) {
     };
   }
 
-  bot.action(/^rv_done_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'done' }, uid),                               '✅ Готово'));
+  bot.action(/^rv_done_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    const task   = getTaskById(id);
+    if (task?.is_recurring) {
+      advanceRecurring(id);
+      await ctx.answerCbQuery('🔄 Цикл обновлён');
+    } else {
+      updateTask(id, { status: 'done' }, userId);
+      await ctx.answerCbQuery('✅ Готово');
+    }
+    const state = pendingTasks.get(userId);
+    if (state?.reviewSlider) {
+      state.reviewSlider.index++;
+      pendingTasks.set(userId, state);
+      await renderReviewSlider(ctx, userId);
+    }
+  });
   bot.action(/^rv_todo_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'todo', waiting_reason: null, waiting_until: null }, uid), '▶️ Взято в работу'));
   bot.action(/^rv_snooze_(\d+)$/,  rvAction((id)      => snoozeTask(id),                                                        '⏭ Отложено на 3 дня'));
   bot.action(/^rv_del_(\d+)$/,     rvAction((id, uid) => deleteTask(id, uid),                                                   '🗑 Удалено'));
@@ -676,15 +683,6 @@ function register(bot) {
   // Review calendar — заглушка для пустых ячеек и заголовка
   bot.action('rvcal_noop', ctx => ctx.answerCbQuery());
 
-  // Recurring — удаление (soft delete задачи)
-  bot.action(/^rec_del_(\d+)$/, ctx => {
-    const userId = getUser(ctx);
-    const id     = parseInt(ctx.match[1]);
-    deleteTask(id, userId);
-    ctx.answerCbQuery('Удалено');
-    ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    ctx.reply('🗑 Напоминание удалено.');
-  });
 }
 
 module.exports = { register, handlePlan, handleReview };

@@ -118,7 +118,6 @@ bot.telegram.setMyCommands([
   { command: 'goals',    description: 'Цели' },
   { command: 'plan',     description: 'План на день' },
   { command: 'review',   description: 'Разбор задач' },
-  { command: 'reminders', description: 'Повторяющиеся напоминания' },
   { command: 'settings',  description: 'Настройки и интеграции' },
   { command: 'help',     description: 'Помощь' },
 ]).catch(() => {});

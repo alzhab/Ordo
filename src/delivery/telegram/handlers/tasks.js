@@ -8,7 +8,7 @@ const {
 const { renderTaskListFiltered } = require('../renderers');
 const {
   getTasks, getTasksByPlannedDate, getTaskById,
-  updateTask, deleteTask, saveTask, syncAllTasks, isNotionEnabled,
+  updateTask, deleteTask, saveTask, syncAllTasks, isNotionEnabled, advanceRecurring,
 } = require('../../../application/tasks');
 const { getGoalsWithProgress, getGoalById } = require('../../../application/goals');
 const { getCategoryNames, getCategoryByName, createCategory } = require('../../../application/categories');
@@ -158,12 +158,18 @@ function register(bot) {
     ]));
   });
 
-  // Быстрая отметка выполнено из напоминания
+  // Быстрая отметка выполнено из напоминания / детальной карточки
   bot.action(/^ts_done_(\d+)$/, async (ctx) => {
     const taskId = Number(ctx.match[1]);
     const userId = getUser(ctx);
-    updateTask(taskId, { status: 'done' }, userId);
-    await ctx.answerCbQuery('✅ Готово!');
+    const task   = getTaskById(taskId);
+    if (task?.is_recurring) {
+      advanceRecurring(taskId);
+      await ctx.answerCbQuery('🔄 Цикл обновлён');
+    } else {
+      updateTask(taskId, { status: 'done' }, userId);
+      await ctx.answerCbQuery('✅ Готово!');
+    }
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   });
 
@@ -663,6 +669,24 @@ function register(bot) {
     const userId = getUser(ctx);
     const filter = getFilter(userId);
     delete filter.includeArchived;
+    taskFilters.set(userId, filter);
+    await ctx.answerCbQuery();
+    await renderTaskListFiltered(ctx, userId, filter, true);
+  });
+
+  bot.action('tf_recurring', async (ctx) => {
+    const userId = getUser(ctx);
+    const filter = getFilter(userId);
+    filter.isRecurring = true;
+    taskFilters.set(userId, filter);
+    await ctx.answerCbQuery();
+    await renderTaskListFiltered(ctx, userId, filter, true);
+  });
+
+  bot.action('tf_clear_recurring', async (ctx) => {
+    const userId = getUser(ctx);
+    const filter = getFilter(userId);
+    delete filter.isRecurring;
     taskFilters.set(userId, filter);
     await ctx.answerCbQuery();
     await renderTaskListFiltered(ctx, userId, filter, true);

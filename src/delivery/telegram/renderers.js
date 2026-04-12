@@ -38,11 +38,17 @@ async function renderTaskListFiltered(ctx, userId, filter = {}, edit = false) {
       : Markup.button.callback('🔍 Поиск', 'tf_search'),
   ];
 
+  const thirdRow = [
+    filter.isRecurring
+      ? Markup.button.callback('🔄 Повторяющиеся ×', 'tf_clear_recurring')
+      : Markup.button.callback('🔄 Повторяющиеся', 'tf_recurring'),
+  ];
+
   const taskRows = tasks.slice(0, 15).map((t, i) => [
     Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`),
   ]);
 
-  const keyboard = Markup.inlineKeyboard([filterRow, secondRow, ...taskRows]);
+  const keyboard = Markup.inlineKeyboard([filterRow, secondRow, thirdRow, ...taskRows]);
   const headerLabel = filter.status ? STATUS_LABEL[filter.status] : '📋 Задачи';
   const text = tasks.length === 0
     ? `${headerLabel} (0)\n\n_Ничего не найдено._`
