@@ -75,10 +75,11 @@ function formatTaskDetail(t, timezone) {
     const fired = t.reminder_sent ? ' _(отправлено)_' : '';
     lines.push(`*🔔 Напомнить:* ${display.slice(0, 16)}${fired}`);
   }
-  if (t.notion_page_id) {
-    const url = `https://notion.so/${t.notion_page_id.replace(/-/g, '')}`;
-    lines.push(`[Открыть в Notion](${url})`);
-  }
+  // Notion интеграция скрыта из UI — временно
+  // if (t.notion_page_id) {
+  //   const url = `https://notion.so/${t.notion_page_id.replace(/-/g, '')}`;
+  //   lines.push(`[Открыть в Notion](${url})`);
+  // }
   lines.push(`\n_Создана: ${t.created_at.slice(0, 10)}_`);
   return lines.join('\n');
 }

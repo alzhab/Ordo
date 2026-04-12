@@ -57,7 +57,7 @@ src/
 │   └── state.js                   — in-memory диалог (pendingTasks, taskFilters...)
 │
 ├── application/                   — бизнес-логика, без привязки к Telegram
-│   ├── tasks.js                   — createTask (с резолвингом категории/цели), CRUD
+│   ├── tasks.js                   — createTask, saveTask, CRUD, advanceRecurring, cleanupDoneTasks
 │   ├── goals.js                   — createGoal, archiveGoal, getGoalsWithProgress
 │   ├── subtasks.js                — createSubtask, toggleSubtask, reorderSubtasks
 │   ├── categories.js              — ensureUser, getCategories, createCategory
@@ -83,17 +83,17 @@ src/
 │           └── syncErrorRepository.js — SQL лога ошибок sync
 │
 └── delivery/telegram/             — всё специфичное для Telegram
-    ├── bot.js                     — регистрация команд и handlers, запуск
-    ├── scheduler.js               — cron каждую минуту: plan/review/reminders
+    ├── bot.js                     — регистрация команд, handlers, онбординг /start
+    ├── scheduler.js               — cron каждую минуту: plan/review/recurring + weekly cleanup
     ├── formatters.js              — объекты → Markdown строки
     ├── keyboards.js               — inline-клавиатуры
-    ├── renderers.js               — рендер списков задач
+    ├── renderers.js               — рендер списков задач с фильтрами
     └── handlers/
         ├── tasks.js               — /tasks, фильтры, CRUD, bulk, waiting
         ├── goals.js               — /goals, CRUD целей
         ├── subtasks.js            — шаги: toggle, add, edit, AI-генерация
         ├── settings.js            — /settings, уведомления, категории, интеграции
-        ├── assistant.js           — /plan /review /reminders + слайдеры + календарь
+        ├── assistant.js           — /plan /review + слайдеры + оба календаря
         └── intent.js              — голос/текст → intent → action
 ```
 
@@ -116,9 +116,9 @@ src/
 - `safeEdit`, `safeDelete` — Telegram edit/delete без крашей на "not modified"
 
 **`state.js`** — in-memory хранилище диалогового состояния (Map по userId):
-- `pendingTasks` — задачи ожидающие подтверждения, диалоговые состояния
-- `taskFilters` — текущий фильтр списка
-- `processingUsers` — защита от дублирования
+- `pendingTasks` — диалоговые состояния: reviewData, reviewSlider, planData, planSlider, reviewCalTaskId…
+- `taskFilters` — текущий фильтр списка задач
+- `processingUsers` — защита от дублирования запросов
 
 **`fuzzy.js`** — нечёткий поиск задач по тексту для команды `manage_task`.
 
@@ -133,15 +133,18 @@ src/
 2. Если `parsed.plan` — ищет цель по заголовку
 3. Передаёт уже разрешённые `category_id`, `goal_id` в `taskRepository.createTask`
 
-Также содержит: `snoozeTask(id)` — сбрасывает `updated_at` на сейчас (скрывает из /review на 3 дня), `advanceRecurring(id)` — переносит `planned_for` повторяющейся задачи на следующий цикл.
+Ключевые функции:
+- `snoozeTask(id)` — сбрасывает `updated_at` на сейчас (скрывает из /review на 3 дня)
+- `advanceRecurring(id)` — переносит `planned_for` повторяющейся задачи на следующий цикл
+- `cleanupDoneTasks()` — soft-delete всех `status='done' AND is_recurring=0`
 
 **`settings.js`** — владеет таблицей `user_settings`. `getSettings` делает upsert. Список `ALLOWED_FIELDS` защищает от случайного UPDATE: `plan_time`, `review_time`, `timezone`, `plan_enabled`, `review_enabled`, `quiet_until`, `notion_enabled`.
 
 **`notifications.js`** — лог уведомлений + sync errors. `wasNotifiedToday` использует timezone пользователя.
 
 **`assistant.js`** — AI use cases:
-- `getPlanRecommendations(userId, date)` — async, возвращает `[{id, reason}]` для /plan
-- `getReviewData(userId)` — sync, SQL запросы по 3 категориям (из плана / ожидание / без даты) + `doneToday`
+- `getPlanRecommendations(userId, date)` — async, возвращает `[{id, reason}]` для /plan; повторяющиеся исключены из просроченных
+- `getReviewData(userId)` — sync, SQL запросы по 3 категориям (из плана / ожидание / без даты) + doneToday; повторяющиеся исключены из всех категорий
 
 ---
 
@@ -156,21 +159,20 @@ askJson(prompt, { maxTokens, model }) // → object (парсит JSON из от
 ```
 Модель по умолчанию: `claude-sonnet-4-6`.
 
-**`ai/parser.js`** — принимает текст пользователя, возвращает JSON намерение:
-```js
-{ intent: "create_task", title: "...", status: "waiting", waiting_until: "...", category: "Здоровье", ... }
-```
-Категория инферируется из контекста задачи даже если пользователь не называл явно.
+**`ai/parser.js`** — принимает текст пользователя, возвращает JSON намерение. Поддерживает intents:
+`create_task`, `create_tasks_batch`, `create_recurring`, `create_recurring_batch`,
+`manage_task`, `query_tasks`, `manage_goal`, `manage_tasks_bulk`, `manage_category`, `manage_settings`, `suggest_goal`.
 
 **`db/connection.js`** — открывает SQLite (WAL mode, FK on). Путь: `DATA_DIR/data.db` или `data_dev.db` при `DEV=true`.
 
-**`db/migrations.js`** — все `CREATE TABLE IF NOT EXISTS` и `ALTER TABLE` миграции. Запускается один раз при старте через `src/bot.js`. Безопасно запускать повторно. Включает миграцию `recurrent_tasks → tasks` (is_recurring) и переименование колонок настроек.
+**`db/migrations.js`** — все `CREATE TABLE IF NOT EXISTS` и `ALTER TABLE` миграции. Запускается один раз при старте. Безопасно запускать повторно.
 
 **`db/repositories/taskRepository.js`** — ключевые функции помимо CRUD:
 - `computeNextOccurrence(recur_days, recur_day_of_month)` — следующая дата срабатывания
-- `getRecurringDueNow(hhmm, day, dayOfMonth)` — повторяющиеся задачи к отправке прямо сейчас
+- `getRecurringDueNow(hhmm, day, dayOfMonth, userId?)` — повторяющиеся задачи к отправке прямо сейчас
 - `advanceRecurring(taskId)` — переносит `planned_for` на следующий цикл
 - `snoozeTask(id)` — `UPDATE tasks SET updated_at = datetime('now')`
+- `cleanupDoneTasks()` — soft-delete всех выполненных не-повторяющихся задач
 
 ---
 
@@ -178,32 +180,32 @@ askJson(prompt, { maxTokens, model }) // → object (парсит JSON из от
 
 Всё что знает про Telegram. Импортирует из `application/` и `shared/`.
 
-**`bot.js`** — регистрирует команды и запускает бот:
-```js
-bot.launch().catch(err => console.error('[fatal]', err.message));
-// bot.launch() в Telegraf 4.x НИКОГДА не резолвится — scheduler.start() вызывается сразу
-schedulerTask = scheduler.start(bot);
-```
+**`bot.js`** — регистрирует команды и запускает бот. `/start` определяет новый/возвращающийся пользователь по наличию активных задач.
 
-**`scheduler.js`** — cron каждую минуту. Для каждого активного пользователя:
-1. Task reminders (`reminder_at` истёк) — отправляет и помечает `reminder_sent = 1`
-2. Recurring tasks — `getRecurringDueNow` → отправить → `advanceRecurring`
-3. `/plan` (`plan_time` совпадает, не отправляли сегодня тип `'plan'`)
-4. `/review` (`review_time` совпадает, не отправляли сегодня тип `'review'`)
+**`scheduler.js`** — cron каждую минуту. Порядок выполнения:
+1. `runWeeklyCleanup()` — воскресенье 02:00 UTC, `cleanupDoneTasks()`
+2. Task reminders (`reminder_at` истёк) — отправляет и помечает `reminder_sent = 1`
+3. Recurring tasks — `getRecurringDueNow` → отправить с кнопкой `[✅ Сделал]` → `advanceRecurring`
+4. `/plan` (`plan_time` совпадает, не отправляли сегодня)
+5. `/review` (`review_time` совпадает, не отправляли сегодня)
 
 Активный пользователь = есть задача с `updated_at >= -7 days`.
 
 **`handlers/assistant.js`** — `/plan` и `/review`:
 - `handlePlan` → `handlePlanForDate(ctx, date)` — загружает запланированные + AI-рекомендации
-- Календарь: `buildCalendarKeyboard(year, month)` → `cal_nav_*` / `cal_pick_*` callbacks
-- `/review`: слайдер по 3 категориям, кнопка `[⏭ Отложить]` → `snoozeTask`
+- `buildCalendarKeyboard(year, month, options)` — переиспользуемый календарь с настраиваемыми prefixes (используется и в /plan и в /review inbox)
+- `/review`: слайдер по 3 категориям; для inbox-категории кнопка `[📅 Выбрать дату]` открывает второй календарь
+- State recovery: если `planData`/`reviewData` потеряны (перезапуск бота), восстанавливаются из БД
 
 **`handlers/settings.js`** — `/settings`:
 - Главный экран: время plan/review + категорий N + кнопки
 - `sn_mt_change` / `sn_et_change` → ставит `state.awaitingSettingInput` → ждёт текст
 - Notion вынесен в подраздел `renderIntegrationsSettings`
 
-**`handlers/intent.js`** — центральный роутер голоса/текста. Перехватывает `state.awaitingSettingInput` для ввода времени через `parseTimeInput`.
+**`handlers/intent.js`** — центральный роутер голоса/текста:
+- Перехватывает `state.awaitingSettingInput` для ввода времени через `parseTimeInput`
+- Задачи сохраняются немедленно через `saveTask`, без шага "превью → подтверждение"
+- `handleCreateRecurring` / `handleCreateRecurringBatch` — создание повторяющихся задач
 
 ---
 
@@ -240,7 +242,7 @@ sync_errors       — id, user_id, message, created_at
 |--------|-------|
 | `todo` | взял в работу, дефолт при создании |
 | `waiting` | жду внешнего события или даты |
-| `done` | готово |
+| `done` | готово; очищается каждое воскресенье (кроме is_recurring) |
 | `deleted` | soft delete |
 
 ### Временные зоны
@@ -255,10 +257,10 @@ sync_errors       — id, user_id, message, created_at
 Пользователь пишет/говорит
   → [голос] whisper.js → текст
   → parser.js (Claude) → { intent: "create_task", title, status, category, ... }
-  → handlers/intent.js → formatters.formatPreview() → показать превью
-  → [confirm] application/tasks.saveTask()
+  → handlers/intent.js → saveTask() немедленно
       → резолвинг category_id (создаёт если нет), goal_id
       → taskRepository.createTask() → INSERT
+      → показывает "✅ Название — сохранено" с [✏️ Изменить] [🗑 Отменить]
       → [если Notion] notion.js sync в фоне
 ```
 

@@ -12,7 +12,6 @@ const { Telegraf, Markup } = require('telegraf');
 const { TELEGRAM_BOT_TOKEN } = require('../../shared/config');
 const { getUser } = require('../../shared/helpers');
 
-const { isConfigured: notionConfigured } = require('../../infrastructure/integrations/notion');
 const { buildSettingsText, buildSettingsKeyboard } = require('./handlers/settings');
 const { getTasks } = require('../../application/tasks');
 
@@ -65,9 +64,7 @@ bot.help((ctx) => {
   ctx.reply(
     'Как пользоваться:\n\n' +
     '1. Отправь голосовое или текстовое сообщение с задачей\n' +
-    '2. Я покажу превью — проверь и подтверди\n' +
-    '3. Задача сохранится локально' +
-    (notionConfigured() ? ' и синхронизируется с Notion' : '') + '\n\n' +
+    '2. Задача сохранится сразу — можно изменить или отменить\n\n' +
     '/tasks — список активных задач\n' +
     '/add — добавить задачу'
   );

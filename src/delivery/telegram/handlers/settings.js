@@ -39,9 +39,10 @@ function buildSettingsKeyboard(userId) {
     [Markup.button.callback('📁 Категории', 'settings_categories')],
   ];
 
-  if (notionConfigured()) {
-    rows.push([Markup.button.callback('🔌 Интеграции', 'settings_integrations')]);
-  }
+  // Notion интеграция скрыта из UI — временно
+  // if (notionConfigured()) {
+  //   rows.push([Markup.button.callback('🔌 Интеграции', 'settings_integrations')]);
+  // }
 
   return Markup.inlineKeyboard(rows);
 }

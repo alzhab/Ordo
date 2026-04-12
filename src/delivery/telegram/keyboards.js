@@ -32,9 +32,10 @@ function taskDetailButtons(t, planId = null, notionLink = false) {
     [Markup.button.callback('📋 Шаги', `steps_${t.id}`), Markup.button.callback('✏️ Изменить', `edit_saved_${t.id}`)],
     [Markup.button.callback('🗑 Удалить', `ts_delete_${t.id}`), backBtn],
   ];
-  if (notionLink) {
-    rows.push([Markup.button.callback('🔗 Привязать к Notion', `notion_link_${t.id}`)]);
-  }
+  // Notion интеграция скрыта из UI — временно
+  // if (notionLink) {
+  //   rows.push([Markup.button.callback('🔗 Привязать к Notion', `notion_link_${t.id}`)]);
+  // }
   return Markup.inlineKeyboard(rows);
 }
 
