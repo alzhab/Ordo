@@ -3,6 +3,7 @@ const db = require('../../infrastructure/db/connection');
 const { wasNotifiedToday, logNotification, getRecurringDueNow, getDueReminders } = require('../../application/notifications');
 const { isQuietMode } = require('../../application/settings');
 const { handlePlan, handleReview } = require('./handlers/assistant');
+const { getReviewData } = require('../../application/assistant');
 const { updateTask, advanceRecurring, cleanupDoneTasks } = require('../../application/tasks');
 
 // Получить всех активных пользователей с их настройками
@@ -161,15 +162,18 @@ function start(bot) {
           logNotification(user.id, 'plan');
         }
 
-        // /review
+        // /review — только если есть задачи для разбора
         if (
           user.review_enabled &&
           currentTime === user.review_time &&
           !wasNotifiedToday(user.id, 'review')
         ) {
-          const ctx = makeFakeCtx(bot, user.id);
-          await handleReview(ctx);
-          logNotification(user.id, 'review');
+          const reviewTasks = getReviewData(user.id);
+          if (reviewTasks.length > 0) {
+            const ctx = makeFakeCtx(bot, user.id);
+            await handleReview(ctx);
+            logNotification(user.id, 'review');
+          }
         }
       } catch (e) {
         console.error(`[scheduler] user ${user.id}:`, e.message);

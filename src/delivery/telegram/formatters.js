@@ -1,8 +1,8 @@
 const { getSubtasks } = require('../../application/subtasks');
 const { utcToLocal, parserReminderToUtc } = require('../../shared/helpers');
 
-const STATUS_ICON     = { not_started: '⬜', in_progress: '🔄', done: '✅', waiting: '⏸' };
-const STATUS_LABEL_RU = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании' };
+const STATUS_ICON     = { not_started: '⬜', in_progress: '🔄', done: '✅', waiting: '⏸', todo: '☐', maybe: '💭' };
+const STATUS_LABEL_RU = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании', todo: '☐ В очереди', maybe: '💭 Отложено' };
 
 function formatWaitingUntil(dateStr) {
   if (!dateStr) return null;

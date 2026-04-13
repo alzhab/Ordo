@@ -35,7 +35,7 @@ async function getPlanRecommendations(userId, date) {
   // Кандидаты: inbox (без даты) + ещё не запланированные на targetDate
   const candidates = allTasks.filter(t =>
     !t.planned_for &&
-    !['done', 'deleted'].includes(t.status) &&
+    !['done', 'deleted', 'maybe'].includes(t.status) &&
     !t.is_recurring &&
     !plannedIds.has(t.id)
   );
@@ -88,14 +88,12 @@ ${goalsText}
 ## Уже в плане на этот день: ${plannedTasks.length} задач
 
 ## Задача
-Выбери 3–5 задач для плана. Приоритеты по убыванию:
+Выбери до 3 задач для дополнения плана. Если план уже насыщен (7+ задач), можно вернуть пустой массив. Приоритеты по убыванию:
 1. Просроченные задачи — их нужно закрыть или перенести
 2. Waiting-задачи у которых истёк или скоро истекает срок ожидания
 3. Задачи из активных целей с малым прогрессом
 4. Задачи без движения 7+ дней
 5. ${isWeekend ? 'Выходной: предпочитай личные/бытовые задачи рабочим' : 'Рабочий день: рабочие задачи важнее бытовых'}
-
-Не выбирай задачи если план уже содержит 5+ задач — верни пустой массив.
 
 Верни JSON:
 {
@@ -112,50 +110,58 @@ ${goalsText}
 
 // ─── Данные для /review ───────────────────────────────────────
 
-// Возвращает задачи по категориям для сводной карточки /review.
-// Каждая категория — отдельный массив, без лимитов (показываем всё).
+// Возвращает плоский список задач для разбора (до 5), упорядоченных по срочности.
+// Каждая задача дополняется полем reason — почему она здесь.
 function getReviewData(userId) {
   const { timezone } = getSettings(userId);
   const today = localNow(timezone);
-  const threeDaysAgo = (() => {
-    const d = new Date(`${today}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 3);
-    return d.toISOString().slice(0, 10);
-  })();
 
-  // Незакрытые задачи из плана на сегодня (без повторяющихся)
-  const unclosed = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND planned_for = ? AND status NOT IN ('done', 'deleted') AND is_recurring != 1
-    ORDER BY created_at ASC
-  `).all(userId, today);
+  const tasks = db.prepare(`
+    SELECT t.*, c.name AS category_name
+    FROM tasks t
+    LEFT JOIN categories c ON c.id = t.category_id
+    WHERE t.user_id = ?
+      AND t.status IN ('todo', 'waiting', 'maybe')
+      AND t.is_recurring != 1
+      AND (
+        (t.status = 'waiting' AND t.waiting_until IS NOT NULL AND t.waiting_until < ?)
+        OR (t.status = 'waiting' AND t.waiting_until IS NULL
+            AND julianday(?) - julianday(t.updated_at) > 5)
+        OR (t.status = 'todo' AND t.planned_for IS NULL
+            AND julianday(?) - julianday(t.updated_at) > 7)
+        OR (t.status = 'maybe'
+            AND julianday(?) - julianday(t.updated_at) > 7)
+      )
+    ORDER BY
+      CASE
+        WHEN t.status = 'waiting' AND t.waiting_until IS NOT NULL AND t.waiting_until < ? THEN 1
+        WHEN t.status = 'waiting' AND t.waiting_until IS NULL THEN 2
+        WHEN t.status = 'todo' THEN 3
+        WHEN t.status = 'maybe' THEN 4
+      END,
+      t.updated_at ASC
+    LIMIT 5
+  `).all(userId, today, today, today, today, today);
 
-  // waiting: и просроченные, и без даты 3+ дней — одна группа, кнопки различаются по типу
-  const waiting = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'waiting' AND status != 'deleted'
-    AND (
-      (waiting_until IS NOT NULL AND waiting_until < ?)
-      OR
-      (waiting_until IS NULL AND date(updated_at) <= ?)
-    )
-    ORDER BY waiting_until ASC, updated_at ASC
-  `).all(userId, today, threeDaysAgo);
-
-  // inbox: todo без даты, не трогалась 3+ дня (без повторяющихся)
-  const inbox = db.prepare(`
-    SELECT * FROM tasks
-    WHERE user_id = ? AND status = 'todo' AND planned_for IS NULL AND is_recurring != 1
-    AND date(updated_at) <= ?
-    ORDER BY updated_at ASC
-  `).all(userId, threeDaysAgo);
-
-  const doneToday = db.prepare(`
-    SELECT COUNT(*) as cnt FROM tasks
-    WHERE user_id = ? AND status = 'done' AND date(updated_at) = ?
-  `).get(userId, today).cnt;
-
-  return { unclosed, waiting, inbox, doneToday };
+  const now = Date.now();
+  return tasks.map(t => {
+    const days = Math.max(0, Math.floor(
+      (now - new Date(t.updated_at.replace(' ', 'T') + 'Z').getTime()) / 86400000
+    ));
+    let reason;
+    if (t.status === 'waiting' && t.waiting_until && t.waiting_until < today) {
+      reason = `Срок ожидания вышел`;
+      if (t.waiting_reason) reason += ` (${t.waiting_reason})`;
+    } else if (t.status === 'waiting') {
+      reason = `Ждёт уже ${days} дн.`;
+      if (t.waiting_reason) reason += ` — ${t.waiting_reason}`;
+    } else if (t.status === 'maybe') {
+      reason = `Отложено ${days} дн. назад`;
+    } else {
+      reason = `Висит ${days} дн. без даты`;
+    }
+    return { ...t, reason };
+  });
 }
 
 module.exports = { getPlanRecommendations, getReviewData };

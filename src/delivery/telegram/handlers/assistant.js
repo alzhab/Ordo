@@ -2,7 +2,7 @@ const { Markup } = require('telegraf');
 const { getUser, localNow } = require('../../../shared/helpers');
 const { getPlanRecommendations, getReviewData } = require('../../../application/assistant');
 const { isQuietMode, getSettings } = require('../../../application/settings');
-const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, snoozeTask, advanceRecurring } = require('../../../application/tasks');
+const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, advanceRecurring } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
 
@@ -91,6 +91,15 @@ function localDatePlusDays(timezone, n) {
   const today = localNow(timezone);
   const d = new Date(today + 'T00:00:00');
   d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
+}
+
+// Ближайшая пятница (если сегодня пятница — следующая)
+function localEndOfWeek(timezone) {
+  const today = localNow(timezone);
+  const d = new Date(today + 'T00:00:00');
+  const daysUntilFriday = ((5 - d.getDay()) + 7) % 7 || 7;
+  d.setDate(d.getDate() + daysUntilFriday);
   return d.toISOString().split('T')[0];
 }
 
@@ -233,65 +242,54 @@ async function renderPlanSlider(ctx, userId) {
   }
 }
 
-// ─── /review — сводная карточка ──────────────────────────────
+// ─── /review ─────────────────────────────────────────────────────
 
-const RV_LABELS = {
-  unclosed: '📅 Из плана',
-  waiting:  '⏸ В ожидании',
-  inbox:    '📋 Без даты',
-};
+async function handleReview(ctx) {
+  const userId = getUser(ctx);
+  await renderReviewSummary(ctx, userId, true);
+}
 
-// Строит и показывает сводную карточку. При reply=true отправляет новое сообщение,
-// при reply=false редактирует текущее (после возврата из слайдера).
 async function renderReviewSummary(ctx, userId, reply = false) {
-  const data = getReviewData(userId);
-  const total = data.unclosed.length + data.waiting.length + data.inbox.length;
+  const tasks = getReviewData(userId);
 
-  if (total === 0) {
-    const text = '✅ Зависших задач нет. Всё под контролем!';
-    return reply ? ctx.reply(text) : safeEdit(ctx, text);
+  if (tasks.length === 0) {
+    const text = '🎉 *Всё под контролем!*\n\nНет зависших задач. Все задачи либо запланированы, либо в ожидании.';
+    const opts = {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('📋 Открыть план на сегодня', 'rv_open_plan')]]),
+    };
+    return reply ? ctx.reply(text, opts) : safeEdit(ctx, text, opts);
   }
 
-  // Сохраняем id задач по категориям — слайдер будет их читать
   const state = pendingTasks.get(userId) ?? {};
   state.reviewData = {
-    unclosed: data.unclosed.map(t => t.id),
-    waiting:  data.waiting.map(t => t.id),
-    inbox:    data.inbox.map(t => t.id),
+    taskIds: tasks.map(t => t.id),
+    reasons: Object.fromEntries(tasks.map(t => [t.id, t.reason])),
   };
   pendingTasks.set(userId, state);
 
-  const lines = ['🔍 *Разбор задач*\n'];
-  const buttons = [];
-
-  if (data.unclosed.length) {
-    lines.push(`📅 Из плана на сегодня: *${data.unclosed.length}*`);
-    buttons.push([Markup.button.callback(`📅 Из плана (${data.unclosed.length})`, 'rv_open_unclosed')]);
-  }
-  if (data.waiting.length) {
-    lines.push(`⏸ В ожидании: *${data.waiting.length}*`);
-    buttons.push([Markup.button.callback(`⏸ В ожидании (${data.waiting.length})`, 'rv_open_waiting')]);
-  }
-  if (data.inbox.length) {
-    lines.push(`📋 Без даты: *${data.inbox.length}*`);
-    buttons.push([Markup.button.callback(`📋 Без даты (${data.inbox.length})`, 'rv_open_inbox')]);
-  }
-  if (data.doneToday > 0) {
-    lines.push(`\n✅ Выполнено сегодня: *${data.doneToday}*`);
-  }
-  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) };
-  return reply ? ctx.reply(lines.join('\n'), opts) : safeEdit(ctx, lines.join('\n'), opts);
+  const text = `🔍 *Разбор задач*\n\nНужно разобрать: *${tasks.length}*`;
+  const opts = {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('▶️ Начать разбор', 'rv_start')]]),
+  };
+  return reply ? ctx.reply(text, opts) : safeEdit(ctx, text, opts);
 }
 
-// Показывает текущую задачу в слайдере — редактирует сообщение.
 async function renderReviewSlider(ctx, userId) {
   const state = pendingTasks.get(userId);
-  const { taskIds, index, category } = state.reviewSlider;
+  if (!state?.reviewSlider) return;
+  const { taskIds, reasons, index, stats } = state.reviewSlider;
 
   if (index >= taskIds.length) {
-    return safeEdit(ctx, `✅ *${RV_LABELS[category]}* — разобрано!`, {
+    const parts = [];
+    if (stats.scheduled > 0) parts.push(`📅 Запланировано: ${stats.scheduled}`);
+    if (stats.deferred  > 0) parts.push(`⏭ Отложено: ${stats.deferred}`);
+    if (stats.deleted   > 0) parts.push(`🗑 Удалено: ${stats.deleted}`);
+    const summary = parts.length ? parts.join('\n') : 'Без изменений';
+    return safeEdit(ctx, `✅ *Разбор завершён*\n\n${summary}`, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К списку', 'rv_back')]]),
+      ...Markup.inlineKeyboard([[Markup.button.callback('📋 Открыть план на сегодня', 'rv_open_plan')]]),
     });
   }
 
@@ -302,60 +300,31 @@ async function renderReviewSlider(ctx, userId) {
     return renderReviewSlider(ctx, userId);
   }
 
-  const age   = daysSince(task.updated_at);
-  const ageStr  = age > 0 ? ` _(${age} дн.)_` : '';
+  const reason  = reasons[task.id] ?? '';
   const counter = `_${index + 1} из ${taskIds.length}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'rv_prev' : 'rv_noop'),
     Markup.button.callback('📋 К списку', 'rv_back'),
-    Markup.button.callback('▶️', 'rv_next'),
+    Markup.button.callback('▶️', index < taskIds.length - 1 ? 'rv_next' : 'rv_noop'),
   ];
 
-  let text, buttons;
-
-  if (category === 'unclosed') {
-    text = `📅 *${task.title}*\nБыло в плане на сегодня.\n${counter}`;
-    buttons = [
-      [Markup.button.callback('✅ Сделал', `rv_done_${task.id}`), Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`)],
-      [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
+  const text = `🔍 *Разбор задач* ${counter}\n\n📋 *${task.title}*\n_${reason}_\n\nКогда займёшься?`;
+  await safeEdit(ctx, text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [
+        Markup.button.callback('Сегодня',        `rv_today_${task.id}`),
+        Markup.button.callback('Завтра',          `rv_tomorrow_${task.id}`),
+        Markup.button.callback('На этой неделе', `rv_week_${task.id}`),
+      ],
+      [Markup.button.callback('📅 Выбрать дату', `rv_pick_date_${task.id}`)],
+      [
+        Markup.button.callback('⏭ Отложить',      `rv_maybe_${task.id}`),
+        Markup.button.callback('🗑 Удалить',       `rv_del_${task.id}`),
+      ],
       nav,
-    ];
-  } else if (category === 'waiting' && task.waiting_until) {
-    text = `⏸ *${task.title}*${ageStr}\nСрок ожидания вышел.\n${counter}`;
-    buttons = [
-      [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
-      [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
-      nav,
-    ];
-  } else if (category === 'waiting') {
-    text = `⏸ *${task.title}*${ageStr}\nПора напомнить?\n${counter}`;
-    buttons = [
-      [Markup.button.callback('▶️ Взять в работу', `rv_todo_${task.id}`)],
-      [Markup.button.callback('⏸ Ещё жду', `rv_keep_${task.id}`), Markup.button.callback('❌ Закрыть', `rv_done_${task.id}`)],
-      nav,
-    ];
-  } else if (category === 'inbox') {
-    text = `📋 *${task.title}*${ageStr}\nЛежит без даты. Запланировать или убрать?\n${counter}`;
-    buttons = [
-      [Markup.button.callback('📅 На завтра', `rv_tomorrow_${task.id}`), Markup.button.callback('📅 Выбрать дату', `rv_pick_date_${task.id}`)],
-      [Markup.button.callback('⏭ Отложить', `rv_snooze_${task.id}`), Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
-      nav,
-    ];
-  } else {
-    text = `💭 *${task.title}*${ageStr}\nВсё ещё думаешь об этом?\n${counter}`;
-    buttons = [
-      [Markup.button.callback('✅ Да, беру в работу', `rv_todo_${task.id}`)],
-      [Markup.button.callback('🗑 Удалить', `rv_del_${task.id}`)],
-      nav,
-    ];
-  }
-
-  await safeEdit(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-}
-
-async function handleReview(ctx) {
-  const userId = getUser(ctx);
-  await renderReviewSummary(ctx, userId, true);
+    ]),
+  });
 }
 
 // ─── Кнопки ──────────────────────────────────────────────────
@@ -536,29 +505,34 @@ function register(bot) {
     }
   });
 
-  // Review — открыть слайдер категории
-  bot.action(/^rv_open_(unclosed|waiting|inbox)$/, async (ctx) => {
-    const category = ctx.match[1];
-    const userId   = getUser(ctx);
+  // Review — начать разбор (переход в слайдер)
+  bot.action('rv_start', async (ctx) => {
+    const userId = getUser(ctx);
     let state = pendingTasks.get(userId) ?? {};
-
-    // State потерян (перезапуск бота) — перезагружаем из БД
     if (!state.reviewData) {
-      const data = getReviewData(userId);
+      const tasks = getReviewData(userId);
       state.reviewData = {
-        unclosed: data.unclosed.map(t => t.id),
-        waiting:  data.waiting.map(t => t.id),
-        inbox:    data.inbox.map(t => t.id),
+        taskIds: tasks.map(t => t.id),
+        reasons: Object.fromEntries(tasks.map(t => [t.id, t.reason])),
       };
-      pendingTasks.set(userId, state);
     }
-
-    const taskIds = state.reviewData[category] ?? [];
-    if (!taskIds.length) return ctx.answerCbQuery('Задач нет');
-    state.reviewSlider = { taskIds, index: 0, category };
+    if (!state.reviewData.taskIds.length) return ctx.answerCbQuery('Задач нет');
+    state.reviewSlider = {
+      taskIds: state.reviewData.taskIds,
+      reasons: state.reviewData.reasons,
+      index: 0,
+      stats: { scheduled: 0, deferred: 0, deleted: 0 },
+    };
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
     await renderReviewSlider(ctx, userId);
+  });
+
+  // Review — открыть план на сегодня
+  bot.action('rv_open_plan', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await handlePlanForDate(ctx, localNow(getSettings(userId).timezone));
   });
 
   // Review — вернуться к сводке
@@ -592,64 +566,82 @@ function register(bot) {
   });
   bot.action('rv_noop', ctx => ctx.answerCbQuery());
 
-  // Review — действия над задачей (применяют + переходят к следующей)
-  function rvAction(fn, toast) {
-    return async (ctx) => {
-      const userId = getUser(ctx);
-      const id     = parseInt(ctx.match[1]);
-      fn(id, userId);
-      await ctx.answerCbQuery(toast);
-      const state = pendingTasks.get(userId);
-      if (state?.reviewSlider) {
-        state.reviewSlider.index++;
-        pendingTasks.set(userId, state);
-        await renderReviewSlider(ctx, userId);
-      }
-    };
-  }
-
-  bot.action(/^rv_done_(\d+)$/, async (ctx) => {
+  // Review — запланировать на сегодня
+  bot.action(/^rv_today_(\d+)$/, async (ctx) => {
     const userId = getUser(ctx);
     const id     = parseInt(ctx.match[1]);
-    const task   = getTaskById(id);
-    if (task?.is_recurring) {
-      advanceRecurring(id);
-      await ctx.answerCbQuery('🔄 Цикл обновлён');
-    } else {
-      updateTask(id, { status: 'done' }, userId);
-      await ctx.answerCbQuery('✅ Готово');
-    }
+    updateTask(id, { planned_for: localNow(getSettings(userId).timezone) }, userId);
+    await ctx.answerCbQuery('📅 На сегодня');
     const state = pendingTasks.get(userId);
     if (state?.reviewSlider) {
+      state.reviewSlider.stats.scheduled++;
       state.reviewSlider.index++;
       pendingTasks.set(userId, state);
-      await renderReviewSlider(ctx, userId);
     }
+    await renderReviewSlider(ctx, userId);
   });
-  bot.action(/^rv_todo_(\d+)$/,     rvAction((id, uid) => updateTask(id, { status: 'todo', waiting_reason: null, waiting_until: null }, uid), '▶️ Взято в работу'));
-  bot.action(/^rv_snooze_(\d+)$/,  rvAction((id)      => snoozeTask(id),                                                        '⏭ Отложено на 3 дня'));
-  bot.action(/^rv_del_(\d+)$/,     rvAction((id, uid) => deleteTask(id, uid),                                                   '🗑 Удалено'));
-  bot.action(/^rv_keep_(\d+)$/, rvAction((id, uid) => {
-    const task = getTaskById(id);
-    // Если waiting_until истёк — сбрасываем его чтобы задача не появлялась каждый день
-    if (task?.waiting_until) updateTask(id, { waiting_until: null }, uid);
-    snoozeTask(id);
-  }, '⏸ Напомню через 3 дня'));
+
+  // Review — запланировать на завтра
   bot.action(/^rv_tomorrow_(\d+)$/, async (ctx) => {
     const userId = getUser(ctx);
     const id     = parseInt(ctx.match[1]);
-    const tomorrow = localDatePlusDays(getSettings(userId).timezone, 1);
-    updateTask(id, { planned_for: tomorrow }, userId);
+    updateTask(id, { planned_for: localDatePlusDays(getSettings(userId).timezone, 1) }, userId);
     await ctx.answerCbQuery('📅 На завтра');
     const state = pendingTasks.get(userId);
     if (state?.reviewSlider) {
+      state.reviewSlider.stats.scheduled++;
       state.reviewSlider.index++;
       pendingTasks.set(userId, state);
-      await renderReviewSlider(ctx, userId);
     }
+    await renderReviewSlider(ctx, userId);
   });
 
-  // Review inbox — открыть календарь для выбора даты
+  // Review — запланировать на эту неделю (ближайшая пятница)
+  bot.action(/^rv_week_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    updateTask(id, { planned_for: localEndOfWeek(getSettings(userId).timezone) }, userId);
+    await ctx.answerCbQuery('📅 На эту неделю');
+    const state = pendingTasks.get(userId);
+    if (state?.reviewSlider) {
+      state.reviewSlider.stats.scheduled++;
+      state.reviewSlider.index++;
+      pendingTasks.set(userId, state);
+    }
+    await renderReviewSlider(ctx, userId);
+  });
+
+  // Review — отложить на неделю (статус maybe)
+  bot.action(/^rv_maybe_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    updateTask(id, { status: 'maybe' }, userId);
+    await ctx.answerCbQuery('⏭ Отложено');
+    const state = pendingTasks.get(userId);
+    if (state?.reviewSlider) {
+      state.reviewSlider.stats.deferred++;
+      state.reviewSlider.index++;
+      pendingTasks.set(userId, state);
+    }
+    await renderReviewSlider(ctx, userId);
+  });
+
+  // Review — удалить
+  bot.action(/^rv_del_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const id     = parseInt(ctx.match[1]);
+    deleteTask(id, userId);
+    await ctx.answerCbQuery('🗑 Удалено');
+    const state = pendingTasks.get(userId);
+    if (state?.reviewSlider) {
+      state.reviewSlider.stats.deleted++;
+      state.reviewSlider.index++;
+      pendingTasks.set(userId, state);
+    }
+    await renderReviewSlider(ctx, userId);
+  });
+
+  // Review — открыть календарь для выбора даты
   bot.action(/^rv_pick_date_(\d+)$/, async (ctx) => {
     const userId = getUser(ctx);
     const taskId = parseInt(ctx.match[1]);
@@ -687,7 +679,7 @@ function register(bot) {
     });
   });
 
-  // Review calendar — выбор даты → поставить planned_for и перейти к следующей задаче
+  // Review calendar — выбор даты → запланировать и перейти к следующей
   bot.action(/^rvcal_pick_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
     const date   = ctx.match[1];
     const userId = getUser(ctx);
@@ -698,20 +690,21 @@ function register(bot) {
     delete state.reviewCalTaskId;
     await ctx.answerCbQuery(`📅 Запланировано на ${date}`);
     if (state.reviewSlider) {
+      state.reviewSlider.stats.scheduled++;
       state.reviewSlider.index++;
       pendingTasks.set(userId, state);
       await renderReviewSlider(ctx, userId);
     }
   });
 
-  // Review calendar — закрыть, вернуться к текущей задаче в слайдере
+  // Review calendar — закрыть, вернуться к задаче
   bot.action('rvcal_close', async (ctx) => {
     const userId = getUser(ctx);
     await ctx.answerCbQuery();
     await renderReviewSlider(ctx, userId);
   });
 
-  // Review calendar — заглушка для пустых ячеек и заголовка
+  // Review calendar — заглушка
   bot.action('rvcal_noop', ctx => ctx.answerCbQuery());
 
   // "✅ Сделал" из уведомления повторяющейся задачи.
