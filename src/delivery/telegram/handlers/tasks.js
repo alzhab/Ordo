@@ -390,7 +390,7 @@ function register(bot) {
     const task   = getTaskById(taskId);
     await ctx.answerCbQuery();
     const rows = [
-      [Markup.button.callback('📋 Шаги', `steps_${taskId}`), Markup.button.callback('🤖 AI шаги', `ai_steps_${taskId}`)],
+      [Markup.button.callback('📋 Шаги', `steps_${taskId}`)],
       [Markup.button.callback('Название', `esf_title_${taskId}`), Markup.button.callback('Описание', `esf_desc_${taskId}`)],
       [Markup.button.callback('Категория', `esf_cat_${taskId}`)],
       [Markup.button.callback('Запланировать на', `esf_date_${taskId}`), Markup.button.callback('Цель', `esf_plan_${taskId}`)],

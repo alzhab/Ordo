@@ -1,6 +1,6 @@
 const { Markup } = require('telegraf');
 const { getUser, localNow } = require('../../../shared/helpers');
-const { getPlanRecommendations, getReviewData } = require('../../../application/assistant');
+const { getPlanRecommendations, getReviewData, invalidatePlanCache } = require('../../../application/assistant');
 const { isQuietMode, getSettings } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, advanceRecurring } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
@@ -148,7 +148,13 @@ async function renderPlanSummary(ctx, userId) {
     buttons.push([Markup.button.callback('🤖 Предложения AI', 'plan_open_suggestions')]);
   } else if (suggestions.length > 0) {
     lines.push(`🤖 Рекомендует AI: *${suggestions.length}*`);
-    buttons.push([Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions')]);
+    buttons.push([
+      Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions'),
+      Markup.button.callback('🔄', 'plan_refresh_suggestions'),
+    ]);
+  } else {
+    // suggestions=[] — пусто, но можно обновить
+    buttons.push([Markup.button.callback('🤖 Обновить предложения', 'plan_refresh_suggestions')]);
   }
 
   if (!plannedIds.length && suggestions !== null && suggestions.length === 0) {
@@ -481,6 +487,39 @@ function register(bot) {
     delete state.planSlider;
     pendingTasks.set(userId, state);
     await renderPlanList(ctx, userId);
+  });
+
+  // Plan — принудительно обновить AI рекомендации (сбросить кэш)
+  bot.action('plan_refresh_suggestions', async (ctx) => {
+    const userId = getUser(ctx);
+    let state = pendingTasks.get(userId) ?? {};
+    if (!state.planData) {
+      const today = localNow(getSettings(userId).timezone);
+      const planned = getTasksByPlannedDate(userId, today);
+      state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: null };
+    }
+    state.planData.suggestions = null;
+    delete state.planList;
+    delete state.planSlider;
+    pendingTasks.set(userId, state);
+    invalidatePlanCache(userId, state.planData.date);
+    await ctx.answerCbQuery('🔄 Обновляю...');
+    await safeEdit(ctx, '⏳ _Анализирую задачи..._', { parse_mode: 'Markdown' });
+    try {
+      const items = await getPlanRecommendations(userId, state.planData.date, { forceRefresh: true });
+      state.planData.suggestions = items
+        .map(({ id, reason }) => getTaskById(id) ? { id, reason } : null)
+        .filter(Boolean);
+    } catch (e) {
+      console.error('[plan] AI refresh error:', e.message);
+      state.planData.suggestions = [];
+      pendingTasks.set(userId, state);
+      return safeEdit(ctx, '⚠️ AI недоступен — попробуй позже.', {
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_list_back')]]),
+      });
+    }
+    pendingTasks.set(userId, state);
+    await renderPlanSummary(ctx, userId);
   });
 
   // Plan — вернуться к списку из слайдера

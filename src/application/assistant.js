@@ -5,6 +5,32 @@ const { getSettings } = require('./settings');
 const { localNow } = require('../shared/helpers');
 const db = require('../infrastructure/db/connection');
 
+// ─── Кэш рекомендаций /plan ──────────────────────────────────
+// Ключ: `${userId}_${date}`, значение: { suggestions, expiresAt }
+// Живёт до конца суток (по UTC) или 4 часов — что наступит раньше.
+
+const planRecoCache = new Map();
+
+function getCachedRecommendations(userId, date) {
+  const cached = planRecoCache.get(`${userId}_${date}`);
+  if (cached && cached.expiresAt > Date.now()) return cached.suggestions;
+  planRecoCache.delete(`${userId}_${date}`);
+  return null;
+}
+
+function setCachedRecommendations(userId, date, suggestions) {
+  const endOfDayUTC = new Date(date + 'T23:59:59Z').getTime();
+  const fourHours   = Date.now() + 4 * 3600_000;
+  planRecoCache.set(`${userId}_${date}`, {
+    suggestions,
+    expiresAt: Math.min(endOfDayUTC, fourHours),
+  });
+}
+
+function invalidatePlanCache(userId, date) {
+  planRecoCache.delete(`${userId}_${date}`);
+}
+
 // ─── Рекомендации для /plan ───────────────────────────────────
 
 const DAY_NAMES_RU = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
@@ -15,9 +41,14 @@ function daysStale(updatedAt) {
   return Math.floor((now - updated) / 86400000);
 }
 
-async function getPlanRecommendations(userId, date) {
+async function getPlanRecommendations(userId, date, { forceRefresh = false } = {}) {
   const { timezone } = getSettings(userId);
   const targetDate = date ?? localNow(timezone);
+
+  if (!forceRefresh) {
+    const cached = getCachedRecommendations(userId, targetDate);
+    if (cached !== null) return cached;
+  }
 
   const allTasks = getTasks(userId, {});
   const plannedTasks = getTasksByPlannedDate(userId, targetDate);
@@ -105,7 +136,9 @@ ${goalsText}
 Только JSON, без пояснений.`;
 
   const json = await askJson(prompt, { maxTokens: 1024 });
-  return json.tasks ?? [];
+  const suggestions = json.tasks ?? [];
+  setCachedRecommendations(userId, targetDate, suggestions);
+  return suggestions;
 }
 
 // ─── Данные для /review ───────────────────────────────────────
@@ -164,4 +197,4 @@ function getReviewData(userId) {
   });
 }
 
-module.exports = { getPlanRecommendations, getReviewData };
+module.exports = { getPlanRecommendations, getReviewData, invalidatePlanCache };

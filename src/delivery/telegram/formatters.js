@@ -68,7 +68,8 @@ function formatTaskDetail(t, timezone) {
   const subtasks = getSubtasks(t.id);
   if (subtasks.length > 0) {
     const done = subtasks.filter(s => s.is_done).length;
-    lines.push(`*Шаги:* ${done}/${subtasks.length}`);
+    lines.push(`*Шаги (${done}/${subtasks.length}):*`);
+    subtasks.forEach(s => lines.push(`${s.is_done ? '☑' : '☐'} ${s.title}`));
   }
   if (t.reminder_at) {
     const display = timezone ? utcToLocal(t.reminder_at, timezone) : t.reminder_at;
