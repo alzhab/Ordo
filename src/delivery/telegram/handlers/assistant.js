@@ -111,34 +111,13 @@ async function handlePlan(ctx) {
 
 async function handlePlanForDate(ctx, date) {
   const userId = ctx.from.id;
-  const loadingText = `⏳ _Анализирую задачи на ${formatDateLabel(date)}..._`;
-  if (ctx.callbackQuery) {
-    await safeEdit(ctx, loadingText, { parse_mode: 'Markdown' });
-  } else {
-    ctx._loadingMsg = await ctx.reply(loadingText, { parse_mode: 'Markdown' });
-  }
-
   const planned = getTasksByPlannedDate(userId, date);
-
-  let aiSuggestions = [];
-  let aiError = false;
-  try {
-    const items = await getPlanRecommendations(userId, date);
-    aiSuggestions = items
-      .map(({ id, reason }) => getTaskById(id) ? { id, reason } : null)
-      .filter(Boolean);
-  } catch (e) {
-    console.error('[plan] AI error:', e.message);
-    aiError = true;
-  }
 
   const state = pendingTasks.get(userId) ?? {};
   state.planData = {
     date,
-    plannedIds:   planned.map(t => t.id),
-    suggestions:  aiSuggestions,
-    loadingMsgId: ctx._loadingMsg?.message_id ?? null,
-    aiError,
+    plannedIds:  planned.map(t => t.id),
+    suggestions: null,  // null = не загружены; [] = загружены, пусто
   };
   pendingTasks.set(userId, state);
 
@@ -148,7 +127,7 @@ async function handlePlanForDate(ctx, date) {
 async function renderPlanSummary(ctx, userId) {
   const { planData } = pendingTasks.get(userId) ?? {};
   if (!planData) return;
-  const { date, plannedIds, suggestions, loadingMsgId, aiError } = planData;
+  const { date, plannedIds, suggestions } = planData;
   const dateLabel = formatDateLabel(date);
 
   const lines   = [`📅 *План на ${dateLabel}*\n`];
@@ -159,25 +138,27 @@ async function renderPlanSummary(ctx, userId) {
     buttons.push([Markup.button.callback(`📋 Запланировано (${plannedIds.length})`, 'plan_open_planned')]);
   }
 
-  if (suggestions.length) {
+  // suggestions=null — ещё не запрашивали AI; показываем кнопку без счётчика
+  // suggestions=[] — AI вернул пусто; кнопку не показываем
+  // suggestions=[...] — есть рекомендации; показываем со счётчиком
+  if (suggestions === null) {
+    buttons.push([Markup.button.callback('🤖 Предложения AI', 'plan_open_suggestions')]);
+  } else if (suggestions.length > 0) {
     lines.push(`🤖 Рекомендует AI: *${suggestions.length}*`);
     buttons.push([Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions')]);
-  } else if (aiError) {
-    lines.push(`_⚠️ AI недоступен — рекомендации не загружены_`);
   }
 
-  if (!plannedIds.length && !suggestions.length && !aiError) {
+  if (!plannedIds.length && suggestions !== null && suggestions.length === 0) {
     lines.push('_Задач нет. Напиши или скажи что нужно сделать — я запишу._');
   }
 
   buttons.push([Markup.button.callback('📅 Другой день', 'plan_pick_date')]);
 
   const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) };
-  if (loadingMsgId) {
-    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, null, lines.join('\n'), opts)
-      .catch(() => ctx.reply(lines.join('\n'), opts));
-  } else {
+  if (ctx.callbackQuery) {
     await safeEdit(ctx, lines.join('\n'), opts);
+  } else {
+    await ctx.reply(lines.join('\n'), opts);
   }
 }
 
@@ -379,27 +360,62 @@ function register(bot) {
     await renderPlanSummary(ctx, userId);
   });
 
-  // Plan — открыть слайдер категории
-  bot.action(/^plan_open_(planned|suggestions)$/, async (ctx) => {
-    const category = ctx.match[1];
-    const userId   = getUser(ctx);
+  // Plan — открыть запланированные
+  bot.action('plan_open_planned', async (ctx) => {
+    const userId = getUser(ctx);
     let state = pendingTasks.get(userId) ?? {};
-
-    // State потерян (перезапуск бота) — восстанавливаем запланированные из БД
     if (!state.planData) {
       const today = localNow(getSettings(userId).timezone);
       const planned = getTasksByPlannedDate(userId, today);
-      state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: [] };
+      state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: null };
+      pendingTasks.set(userId, state);
+    }
+    if (!state.planData.plannedIds?.length) return ctx.answerCbQuery('Задач нет');
+    state.planSlider = { category: 'planned', index: 0 };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSlider(ctx, userId);
+  });
+
+  // Plan — открыть AI-рекомендации (lazy-load)
+  bot.action('plan_open_suggestions', async (ctx) => {
+    const userId = getUser(ctx);
+    let state = pendingTasks.get(userId) ?? {};
+    if (!state.planData) {
+      const today = localNow(getSettings(userId).timezone);
+      const planned = getTasksByPlannedDate(userId, today);
+      state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: null };
       pendingTasks.set(userId, state);
     }
 
-    const isEmpty = category === 'planned'
-      ? !state.planData.plannedIds?.length
-      : !state.planData.suggestions?.length;
-    if (isEmpty) return ctx.answerCbQuery('Задач нет');
-    state.planSlider = { category, index: 0 };
+    // Если рекомендации ещё не загружены — загружаем сейчас
+    if (state.planData.suggestions === null) {
+      await ctx.answerCbQuery();
+      await safeEdit(ctx, `⏳ _Анализирую задачи..._`, { parse_mode: 'Markdown' });
+      try {
+        const items = await getPlanRecommendations(userId, state.planData.date);
+        state.planData.suggestions = items
+          .map(({ id, reason }) => getTaskById(id) ? { id, reason } : null)
+          .filter(Boolean);
+      } catch (e) {
+        console.error('[plan] AI error:', e.message);
+        state.planData.suggestions = [];
+        pendingTasks.set(userId, state);
+        return safeEdit(ctx, '⚠️ AI недоступен — попробуй позже.', {
+          ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+        });
+      }
+      pendingTasks.set(userId, state);
+    }
+
+    if (!state.planData.suggestions.length) {
+      return safeEdit(ctx, '✅ Нет дополнительных рекомендаций — план выглядит хорошо!', {
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+      });
+    }
+
+    state.planSlider = { category: 'suggestions', index: 0 };
     pendingTasks.set(userId, state);
-    await ctx.answerCbQuery();
     await renderPlanSlider(ctx, userId);
   });
 

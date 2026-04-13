@@ -2,8 +2,16 @@ const { Markup } = require('telegraf');
 const { getTasks } = require('../../application/tasks');
 const { formatTaskText, formatPlanDetail } = require('./formatters');
 
+const PAGE_SIZE = 6;
+
 async function renderTaskListFiltered(ctx, userId, filter = {}, edit = false) {
   const tasks = getTasks(userId, filter);
+
+  // Пагинация — автосброс если страница вышла за пределы
+  let page = filter.page ?? 0;
+  const totalPages = Math.ceil(tasks.length / PAGE_SIZE) || 1;
+  if (page >= totalPages) { page = 0; filter.page = 0; }
+  const pageTasks = tasks.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const STATUS_LABEL = {
     in_progress: '🔄 В работе',
@@ -44,11 +52,27 @@ async function renderTaskListFiltered(ctx, userId, filter = {}, edit = false) {
       : Markup.button.callback('🔄 Повторяющиеся', 'tf_recurring'),
   ];
 
-  const taskRows = tasks.slice(0, 15).map((t, i) => [
-    Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`),
+  const taskRows = pageTasks.map((t, i) => [
+    Markup.button.callback(formatTaskText(t, page * PAGE_SIZE + i + 1), `tv_${t.id}`),
   ]);
 
-  const keyboard = Markup.inlineKeyboard([filterRow, secondRow, thirdRow, ...taskRows]);
+  const extraRows = [];
+
+  // Пагинация (только если > 1 страница)
+  if (totalPages > 1) {
+    extraRows.push([
+      Markup.button.callback('◀️', page > 0 ? `tf_page_${page - 1}` : 'tf_noop'),
+      Markup.button.callback(`${page + 1} / ${totalPages}`, 'tf_noop'),
+      Markup.button.callback('▶️', page < totalPages - 1 ? `tf_page_${page + 1}` : 'tf_noop'),
+    ]);
+  }
+
+  // Кнопка слайдера (только если есть задачи)
+  if (tasks.length > 0) {
+    extraRows.push([Markup.button.callback(`▶️ Просмотр (${tasks.length})`, 'tf_slider')]);
+  }
+
+  const keyboard = Markup.inlineKeyboard([filterRow, secondRow, thirdRow, ...taskRows, ...extraRows]);
   const headerLabel = filter.status ? STATUS_LABEL[filter.status] : '📋 Задачи';
   const text = tasks.length === 0
     ? `${headerLabel} (0)\n\n_Ничего не найдено._`

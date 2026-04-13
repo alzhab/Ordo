@@ -1,6 +1,6 @@
 const { Markup } = require('telegraf');
 const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc } = require('../../../shared/helpers');
-const { pendingTasks, taskFilters, getFilter, taskPlanContext, acquireProcessing, releaseProcessing } = require('../../../shared/state');
+const { pendingTasks, taskFilters, getFilter, taskPlanContext, taskSliders, acquireProcessing, releaseProcessing } = require('../../../shared/state');
 const { formatTaskDetail, formatPreview } = require('../formatters');
 const {
   taskDetailButtons, buildCategoryButtons, confirmButtons,
@@ -61,6 +61,31 @@ async function showNextBatchTask(ctx, userId, state, edit = true) {
   ]);
   const opts = { parse_mode: 'Markdown', ...keyboard };
   return edit ? safeEdit(ctx, text, opts) : ctx.reply(text, opts);
+}
+
+async function renderTaskSlider(ctx, userId, edit = false) {
+  const slider = taskSliders.get(userId);
+  if (!slider) return;
+  const { taskIds, index } = slider;
+  const task = getTaskById(taskIds[index]);
+  if (!task) {
+    taskSliders.delete(userId);
+    return renderTaskListFiltered(ctx, userId, getFilter(userId), edit);
+  }
+  const tz = getUserTz(userId);
+  const text = formatTaskDetail(task, tz);
+  const counter = `${index + 1} / ${taskIds.length}`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback(`📋 К списку`, 'tsl_back')],
+    [
+      Markup.button.callback('◀️', index > 0 ? 'tsl_prev' : 'tsl_noop'),
+      Markup.button.callback(counter, 'tsl_noop'),
+      Markup.button.callback('▶️', index < taskIds.length - 1 ? 'tsl_next' : 'tsl_noop'),
+    ],
+  ]);
+  const opts = { parse_mode: 'Markdown', ...keyboard };
+  if (!edit) return ctx.reply(text, opts);
+  return safeEdit(ctx, text, opts);
 }
 
 function register(bot) {
@@ -742,6 +767,63 @@ function register(bot) {
         [Markup.button.callback('◀️ Назад', 'tf_status_back')],
       ]),
     });
+  });
+
+  // Пагинация — переход на страницу N
+  bot.action(/^tf_page_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const filter = getFilter(userId);
+    filter.page = parseInt(ctx.match[1]);
+    taskFilters.set(userId, filter);
+    await renderTaskListFiltered(ctx, userId, filter, true);
+  });
+
+  // Заглушка — не делать ничего (нажатия на некликабельные кнопки)
+  bot.action('tf_noop', async (ctx) => {
+    await ctx.answerCbQuery();
+  });
+
+  // Слайдер задач — открыть
+  bot.action('tf_slider', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const filter = getFilter(userId);
+    const tasks = getTasks(userId, filter);
+    if (!tasks.length) return;
+    taskSliders.set(userId, { taskIds: tasks.map(t => t.id), index: 0 });
+    await renderTaskSlider(ctx, userId, true);
+  });
+
+  // Слайдер задач — навигация
+  bot.action('tsl_prev', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const slider = taskSliders.get(userId);
+    if (!slider) return;
+    slider.index = Math.max(0, slider.index - 1);
+    await renderTaskSlider(ctx, userId, true);
+  });
+
+  bot.action('tsl_next', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const slider = taskSliders.get(userId);
+    if (!slider) return;
+    slider.index = Math.min(slider.taskIds.length - 1, slider.index + 1);
+    await renderTaskSlider(ctx, userId, true);
+  });
+
+  bot.action('tsl_back', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    taskSliders.delete(userId);
+    const filter = getFilter(userId);
+    await renderTaskListFiltered(ctx, userId, filter, true);
+  });
+
+  bot.action('tsl_noop', async (ctx) => {
+    await ctx.answerCbQuery();
   });
 
   // Групповые операции — подтверждение
