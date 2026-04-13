@@ -112,21 +112,24 @@ async function handlePlanForDate(ctx, date) {
   const planned = getTasksByPlannedDate(userId, date);
 
   let aiSuggestions = [];
+  let aiError = false;
   try {
     const items = await getPlanRecommendations(userId, date);
     aiSuggestions = items
       .map(({ id, reason }) => getTaskById(id) ? { id, reason } : null)
       .filter(Boolean);
   } catch (e) {
-    console.error('[plan]', e.message);
+    console.error('[plan] AI error:', e.message);
+    aiError = true;
   }
 
   const state = pendingTasks.get(userId) ?? {};
   state.planData = {
     date,
-    plannedIds:  planned.map(t => t.id),
-    suggestions: aiSuggestions,
+    plannedIds:   planned.map(t => t.id),
+    suggestions:  aiSuggestions,
     loadingMsgId: ctx._loadingMsg?.message_id ?? null,
+    aiError,
   };
   pendingTasks.set(userId, state);
 
@@ -136,7 +139,7 @@ async function handlePlanForDate(ctx, date) {
 async function renderPlanSummary(ctx, userId) {
   const { planData } = pendingTasks.get(userId) ?? {};
   if (!planData) return;
-  const { date, plannedIds, suggestions, loadingMsgId } = planData;
+  const { date, plannedIds, suggestions, loadingMsgId, aiError } = planData;
   const dateLabel = formatDateLabel(date);
 
   const lines   = [`📅 *План на ${dateLabel}*\n`];
@@ -150,9 +153,11 @@ async function renderPlanSummary(ctx, userId) {
   if (suggestions.length) {
     lines.push(`🤖 Рекомендует AI: *${suggestions.length}*`);
     buttons.push([Markup.button.callback(`🤖 Рекомендации (${suggestions.length})`, 'plan_open_suggestions')]);
+  } else if (aiError) {
+    lines.push(`_⚠️ AI недоступен — рекомендации не загружены_`);
   }
 
-  if (!plannedIds.length && !suggestions.length) {
+  if (!plannedIds.length && !suggestions.length && !aiError) {
     lines.push('_Задач нет. Напиши или скажи что нужно сделать — я запишу._');
   }
 

@@ -144,10 +144,10 @@ try { db.exec(`ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAU
 // Переименование: due_date → planned_for (семантика изменилась: не дедлайн, а дата плана)
 try { db.exec(`ALTER TABLE tasks RENAME COLUMN due_date TO planned_for`); } catch {}
 
-// Статус 'maybe' удалён — конвертируем в 'todo'
+// Статусы 'maybe', 'not_started', 'in_progress' удалены — конвертируем в 'todo'
 try {
-  db.prepare(`UPDATE tasks SET status = 'todo' WHERE status = 'maybe'`).run();
-} catch (e) { console.error('[db] maybe migration error:', e.message); }
+  db.prepare(`UPDATE tasks SET status = 'todo' WHERE status IN ('maybe', 'not_started', 'in_progress')`).run();
+} catch (e) { console.error('[db] status migration error:', e.message); }
 
 // Поля повторяющихся задач (перенесены из recurrent_tasks)
 try { db.exec(`ALTER TABLE tasks ADD COLUMN is_recurring        INTEGER NOT NULL DEFAULT 0`); } catch {}
