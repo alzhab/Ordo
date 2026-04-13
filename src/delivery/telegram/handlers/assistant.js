@@ -5,6 +5,9 @@ const { isQuietMode, getSettings } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, advanceRecurring } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
+const { formatTaskDetail } = require('../formatters');
+
+const PAGE_SIZE = 6;
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -162,6 +165,58 @@ async function renderPlanSummary(ctx, userId) {
   }
 }
 
+async function renderPlanList(ctx, userId) {
+  const state = pendingTasks.get(userId);
+  if (!state?.planData || !state?.planList) return;
+  const { category, page } = state.planList;
+  const { date, plannedIds, suggestions } = state.planData;
+
+  const rawItems = category === 'planned'
+    ? plannedIds.map(id => getTaskById(id)).filter(Boolean)
+    : (suggestions ?? []);
+  const total = rawItems.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+  const p = Math.min(page, totalPages - 1);
+  state.planList.page = p;
+  const pageItems = rawItems.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
+  const offset = p * PAGE_SIZE;
+
+  const header = category === 'planned'
+    ? `📋 *Запланировано (${total})* — ${formatDateLabel(date)}`
+    : `🤖 *Рекомендации AI (${total})*`;
+
+  const lines = [header, ''];
+  if (category === 'planned') {
+    pageItems.forEach((task, i) => {
+      const icon = task.status === 'done' ? '✅' : (task.is_recurring ? '🔄' : '☐');
+      lines.push(`${offset + i + 1}. ${icon} ${task.title}`);
+    });
+  } else {
+    pageItems.forEach((item, i) => {
+      const task = getTaskById(item.id);
+      if (!task) return;
+      lines.push(`${offset + i + 1}. ${task.title}`);
+      lines.push(`    _→ ${item.reason}_`);
+    });
+  }
+
+  const buttons = [];
+  if (total > 0) {
+    buttons.push([Markup.button.callback(`▶️ Просмотр (${total})`, 'plan_list_slider')]);
+  }
+  if (totalPages > 1) {
+    buttons.push([
+      Markup.button.callback('◀️', p > 0 ? `plan_list_page_${p - 1}` : 'plan_noop'),
+      Markup.button.callback(`${p + 1} / ${totalPages}`, 'plan_noop'),
+      Markup.button.callback('▶️', p < totalPages - 1 ? `plan_list_page_${p + 1}` : 'plan_noop'),
+    ]);
+  }
+  buttons.push([Markup.button.callback('◀️ К плану', 'plan_list_back')]);
+
+  pendingTasks.set(userId, state);
+  await safeEdit(ctx, lines.join('\n'), { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
 async function renderPlanSlider(ctx, userId) {
   const state = pendingTasks.get(userId);
   if (!state?.planSlider || !state?.planData) return;
@@ -171,15 +226,15 @@ async function renderPlanSlider(ctx, userId) {
   const counter = `_${index + 1} из ${total}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'plan_prev' : 'plan_noop'),
-    Markup.button.callback('📋 К плану', 'plan_back'),
-    Markup.button.callback('▶️', 'plan_next'),
+    Markup.button.callback('📋 К списку', 'plan_back'),
+    Markup.button.callback('▶️', index < total - 1 ? 'plan_next' : 'plan_noop'),
   ];
 
   if (category === 'planned') {
     if (index >= plannedIds.length) {
       return safeEdit(ctx, '✅ *Запланировано* — просмотрено!', {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback('📋 К списку', 'plan_back')]]),
       });
     }
     const task = getTaskById(plannedIds[index]);
@@ -188,8 +243,9 @@ async function renderPlanSlider(ctx, userId) {
       pendingTasks.set(userId, state);
       return renderPlanSlider(ctx, userId);
     }
-    const statusIcon = task.status === 'done' ? '✅' : '☐';
-    await safeEdit(ctx, `${statusIcon} *${task.title}*\n${counter}`, {
+    const tz = getSettings(userId).timezone;
+    const detail = formatTaskDetail(task, tz);
+    await safeEdit(ctx, `${detail}\n\n${counter}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('✅ Сделал', `plan_done_${task.id}`), Markup.button.callback('📅 На завтра', `plan_tomorrow_${task.id}`)],
@@ -203,7 +259,7 @@ async function renderPlanSlider(ctx, userId) {
     if (index >= suggestions.length) {
       return safeEdit(ctx, '✅ *Рекомендации* — просмотрены!', {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback('📋 К списку', 'plan_back')]]),
       });
     }
     const { id, reason } = suggestions[index];
@@ -213,7 +269,9 @@ async function renderPlanSlider(ctx, userId) {
       pendingTasks.set(userId, state);
       return renderPlanSlider(ctx, userId);
     }
-    await safeEdit(ctx, `🤖 *${task.title}*\n_→ ${reason}_\n${counter}`, {
+    const tz = getSettings(userId).timezone;
+    const detail = formatTaskDetail(task, tz);
+    await safeEdit(ctx, `🤖 _→ ${reason}_\n\n${detail}\n\n${counter}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('➕ Добавить в план', `plan_add_${date}_${task.id}`)],
@@ -249,7 +307,12 @@ async function renderReviewSummary(ctx, userId, reply = false) {
   };
   pendingTasks.set(userId, state);
 
-  const text = `🔍 *Разбор задач*\n\nНужно разобрать: *${tasks.length}*`;
+  const lines = [`🔍 *Разбор задач* (${tasks.length})\n`];
+  tasks.forEach((t, i) => {
+    lines.push(`${i + 1}. 📋 *${t.title}*`);
+    lines.push(`    _${t.reason}_`);
+  });
+  const text = lines.join('\n');
   const opts = {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([[Markup.button.callback('▶️ Начать разбор', 'rv_start')]]),
@@ -289,7 +352,9 @@ async function renderReviewSlider(ctx, userId) {
     Markup.button.callback('▶️', index < taskIds.length - 1 ? 'rv_next' : 'rv_noop'),
   ];
 
-  const text = `🔍 *Разбор задач* ${counter}\n\n📋 *${task.title}*\n_${reason}_\n\nКогда займёшься?`;
+  const tz = getSettings(userId).timezone;
+  const detail = formatTaskDetail(task, tz);
+  const text = `🔍 *Разбор задач* ${counter}\n\n${detail}\n_${reason}_\n\nКогда займёшься?`;
   await safeEdit(ctx, text, {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([
@@ -360,7 +425,7 @@ function register(bot) {
     await renderPlanSummary(ctx, userId);
   });
 
-  // Plan — открыть запланированные
+  // Plan — открыть запланированные (список)
   bot.action('plan_open_planned', async (ctx) => {
     const userId = getUser(ctx);
     let state = pendingTasks.get(userId) ?? {};
@@ -368,13 +433,13 @@ function register(bot) {
       const today = localNow(getSettings(userId).timezone);
       const planned = getTasksByPlannedDate(userId, today);
       state.planData = { date: today, plannedIds: planned.map(t => t.id), suggestions: null };
-      pendingTasks.set(userId, state);
     }
     if (!state.planData.plannedIds?.length) return ctx.answerCbQuery('Задач нет');
-    state.planSlider = { category: 'planned', index: 0 };
+    state.planList = { category: 'planned', page: 0 };
+    delete state.planSlider;
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
-    await renderPlanSlider(ctx, userId);
+    await renderPlanList(ctx, userId);
   });
 
   // Plan — открыть AI-рекомендации (lazy-load)
@@ -410,26 +475,68 @@ function register(bot) {
 
     if (!state.planData.suggestions.length) {
       return safeEdit(ctx, '✅ Нет дополнительных рекомендаций — план выглядит хорошо!', {
-        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_back')]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ К плану', 'plan_list_back')]]),
       });
     }
 
-    state.planSlider = { category: 'suggestions', index: 0 };
+    state.planList = { category: 'suggestions', page: 0 };
+    delete state.planSlider;
     pendingTasks.set(userId, state);
-    await renderPlanSlider(ctx, userId);
+    await renderPlanList(ctx, userId);
   });
 
-  // Plan — вернуться к сводке (обновляем запланированные из БД, AI-рекомендации сохраняем)
+  // Plan — вернуться к списку из слайдера
   bot.action('plan_back', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state?.planData) return ctx.answerCbQuery('Сессия устарела');
+    delete state.planSlider;
+    // Обновляем запланированные из БД при выходе из planned-слайдера
+    const planned = getTasksByPlannedDate(userId, state.planData.date);
+    state.planData.plannedIds = planned.map(t => t.id);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    if (state.planList) {
+      await renderPlanList(ctx, userId);
+    } else {
+      await renderPlanSummary(ctx, userId);
+    }
+  });
+
+  // Plan — вернуться к сводке из списка
+  bot.action('plan_list_back', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planData) return ctx.answerCbQuery('Сессия устарела');
+    delete state.planList;
     delete state.planSlider;
     const planned = getTasksByPlannedDate(userId, state.planData.date);
     state.planData.plannedIds = planned.map(t => t.id);
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
     await renderPlanSummary(ctx, userId);
+  });
+
+  // Plan — открыть слайдер из списка
+  bot.action('plan_list_slider', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planList) return ctx.answerCbQuery();
+    state.planSlider = { category: state.planList.category, index: 0 };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSlider(ctx, userId);
+  });
+
+  // Plan — пагинация списка
+  bot.action(/^plan_list_page_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planList) return ctx.answerCbQuery();
+    state.planList.page = parseInt(ctx.match[1]);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanList(ctx, userId);
   });
 
   // Plan — навигация по слайдеру
