@@ -16,7 +16,7 @@ const { getSettings } = require('../../../application/settings');
 
 function getUserTz(userId) { return getSettings(userId).timezone || null; }
 
-const STATUS_LABEL = { not_started: '⬜ Возвращено', in_progress: '🔄 В работу', done: '✅ Готово!' };
+const STATUS_LABEL = { not_started: '⬜ В очередь', in_progress: '⬜ В очередь', todo: '⬜ В очередь', done: '✅ Готово!' };
 
 const needsNotionLink = (task, userId) => isNotionEnabled(userId) && !task.notion_page_id;
 
@@ -121,7 +121,7 @@ function register(bot) {
   });
 
   // Смена статуса
-  bot.action(/^ts_(not_started|in_progress|done)_(\d+)$/, async (ctx) => {
+  bot.action(/^ts_(not_started|in_progress|todo|done)_(\d+)$/, async (ctx) => {
     const status  = ctx.match[1];
     const taskId  = Number(ctx.match[2]);
     const userId  = getUser(ctx);
@@ -390,9 +390,10 @@ function register(bot) {
     const task   = getTaskById(taskId);
     await ctx.answerCbQuery();
     const rows = [
+      [Markup.button.callback('📋 Шаги', `steps_${taskId}`), Markup.button.callback('🤖 AI шаги', `ai_steps_${taskId}`)],
       [Markup.button.callback('Название', `esf_title_${taskId}`), Markup.button.callback('Описание', `esf_desc_${taskId}`)],
       [Markup.button.callback('Категория', `esf_cat_${taskId}`)],
-      [Markup.button.callback('Запланировать на', `esf_date_${taskId}`), Markup.button.callback('План', `esf_plan_${taskId}`)],
+      [Markup.button.callback('Запланировать на', `esf_date_${taskId}`), Markup.button.callback('Цель', `esf_plan_${taskId}`)],
       [Markup.button.callback('🔔 Напоминание', `esf_reminder_${taskId}`)],
     ];
     if (task?.status === 'waiting') {

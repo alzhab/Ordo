@@ -19,19 +19,21 @@ function taskButtons(taskId, status) {
 }
 
 function taskDetailButtons(t, planId = null, notionLink = false) {
-  const statusBtns = [];
-  if (t.status !== 'not_started') statusBtns.push(Markup.button.callback('⬜ Вернуть',    `ts_not_started_${t.id}`));
-  if (t.status !== 'in_progress') statusBtns.push(Markup.button.callback('🔄 В работу',  `ts_in_progress_${t.id}`));
-  if (t.status !== 'done')        statusBtns.push(Markup.button.callback('✅ Готово',     `ts_done_${t.id}`));
-  if (t.status !== 'waiting')     statusBtns.push(Markup.button.callback('⏸ В ожидании', `ts_waiting_${t.id}`));
+  // Показываем релевантные действия по статусу (максимум 2 в ряду)
+  const isTodo = ['todo', 'not_started', 'in_progress'].includes(t.status);
+  const statusRow = [];
+  if (!isTodo)              statusRow.push(Markup.button.callback('⬜ В очередь',   `ts_todo_${t.id}`));
+  if (t.status !== 'done')  statusRow.push(Markup.button.callback('✅ Готово',      `ts_done_${t.id}`));
+  if (isTodo)               statusRow.push(Markup.button.callback('⏸ В ожидании', `ts_waiting_${t.id}`));
+
   const backBtn = planId
     ? Markup.button.callback('◀️ К плану', `plan_tasks_${planId}`)
     : Markup.button.callback('◀️ К списку', 'back_to_tasks');
-  const rows = [
-    statusBtns,
-    [Markup.button.callback('📋 Шаги', `steps_${t.id}`), Markup.button.callback('✏️ Изменить', `edit_saved_${t.id}`)],
-    [Markup.button.callback('🗑 Удалить', `ts_delete_${t.id}`), backBtn],
-  ];
+
+  const rows = [];
+  if (statusRow.length) rows.push(statusRow);
+  rows.push([Markup.button.callback('✏️ Изменить', `edit_saved_${t.id}`), backBtn]);
+  rows.push([Markup.button.callback('🗑 Удалить', `ts_delete_${t.id}`)]);
   // Notion интеграция скрыта из UI — временно
   // if (notionLink) {
   //   rows.push([Markup.button.callback('🔗 Привязать к Notion', `notion_link_${t.id}`)]);
