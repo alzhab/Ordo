@@ -18,29 +18,81 @@ const { getNotionEnabled } = require('../../../application/settings');
 
 function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
 
+const APS_PAGE = 6;
+
 function renderPendingSteps(ctx, userId, reply = false) {
   const state = pendingTasks.get(userId);
   if (!state?.pendingSteps) return;
-  const { taskId, steps, hasExisting } = state.pendingSteps;
+  delete state.pendingStepSlider;
+  const { taskId, steps, hasExisting, page = 0 } = state.pendingSteps;
+  const total = steps.length;
+  const totalPages = Math.ceil(total / APS_PAGE) || 1;
+  const p = Math.min(page, totalPages - 1);
+  state.pendingSteps.page = p;
+  pendingTasks.set(userId, state);
 
-  const header = `🤖 *${hasExisting ? 'Обновлённые шаги' : 'Предлагаемые шаги'} (${steps.length}):*`;
+  const header = `🤖 *${hasExisting ? 'Обновлённые шаги' : 'Предлагаемые шаги'} (${total}):*`;
+  const pageItems = steps.slice(p * APS_PAGE, (p + 1) * APS_PAGE);
+  const offset = p * APS_PAGE;
 
-  const stepRows = steps.map((s, i) => [
-    Markup.button.callback(`☐ ${s}`, `ai_step_edit_${i}`),
-    Markup.button.callback('🗑', `ai_step_del_${i}`),
+  const stepRows = pageItems.map((s, i) => [
+    Markup.button.callback(`${offset + i + 1}. ${s}`, `aps_item_${offset + i}`),
   ]);
+
+  const extraRows = [];
+  if (total > 0) extraRows.push([Markup.button.callback(`▶️ Управлять (${total})`, 'aps_slider_0')]);
+  if (totalPages > 1) {
+    extraRows.push([
+      Markup.button.callback('◀️', p > 0 ? `aps_page_${p - 1}` : 'aps_noop'),
+      Markup.button.callback(`${p + 1} / ${totalPages}`, 'aps_noop'),
+      Markup.button.callback('▶️', p < totalPages - 1 ? `aps_page_${p + 1}` : 'aps_noop'),
+    ]);
+  }
+  extraRows.push([Markup.button.callback('➕ Добавить шаг', 'aps_add')]);
 
   const confirmRows = hasExisting
     ? [
-        [Markup.button.callback(`🔄 Заменить все (${steps.length})`, `ai_steps_replace_${taskId}`), Markup.button.callback(`➕ Добавить новые`, `ai_steps_merge_${taskId}`)],
+        [Markup.button.callback(`🔄 Заменить все`, `ai_steps_replace_${taskId}`), Markup.button.callback(`➕ Добавить новые`, `ai_steps_merge_${taskId}`)],
         [Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
       ]
     : [
-        [Markup.button.callback(`✅ Добавить (${steps.length})`, `ai_steps_replace_${taskId}`), Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
+        [Markup.button.callback(`✅ Сохранить (${total})`, `ai_steps_replace_${taskId}`), Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
       ];
 
-  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard([...stepRows, ...confirmRows]) };
+  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard([...stepRows, ...extraRows, ...confirmRows]) };
   return reply ? ctx.reply(header, opts) : safeEdit(ctx, header, opts);
+}
+
+function renderPendingStepSlider(ctx, userId, reply = false) {
+  const state = pendingTasks.get(userId);
+  if (!state?.pendingSteps || !state?.pendingStepSlider) return;
+  const { taskId, steps } = state.pendingSteps;
+  const total = steps.length;
+  let { index } = state.pendingStepSlider;
+  index = Math.max(0, Math.min(index, total - 1));
+  state.pendingStepSlider.index = index;
+  pendingTasks.set(userId, state);
+
+  const step = steps[index];
+  const counter = `_${index + 1} из ${total}_`;
+  const nav = [
+    Markup.button.callback('◀️', index > 0 ? 'aps_prev' : 'aps_noop'),
+    Markup.button.callback('📋 К списку', 'aps_back'),
+    Markup.button.callback('▶️', index < total - 1 ? 'aps_next' : 'aps_noop'),
+  ];
+  const text = `🤖 *Шаг* ${counter}\n\n☐ ${step}`;
+  const opts = {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('✏️ Изменить', 'aps_edit'), Markup.button.callback('🗑 Удалить', 'aps_del')],
+      [
+        Markup.button.callback('↑ Выше', index > 0 ? 'aps_up' : 'aps_noop'),
+        Markup.button.callback('↓ Ниже', index < total - 1 ? 'aps_down' : 'aps_noop'),
+      ],
+      nav,
+    ]),
+  };
+  return reply ? ctx.reply(text, opts) : safeEdit(ctx, text, opts);
 }
 
 function register(bot) {
@@ -141,48 +193,160 @@ function register(bot) {
     }
   });
 
-  // Удалить шаг из pending-списка
-  bot.action(/^ai_step_del_(\d+)$/, async (ctx) => {
+  // Список pending-шагов — открыть конкретный шаг в слайдере
+  bot.action(/^aps_item_(\d+)$/, async (ctx) => {
     const index  = parseInt(ctx.match[1]);
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId) ?? {};
     if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
-    state.pendingSteps.steps.splice(index, 1);
-    if (state.pendingSteps.steps.length === 0) {
-      delete state.pendingSteps;
-      pendingTasks.set(userId, state);
-      await ctx.answerCbQuery('Все шаги удалены');
-      return safeEdit(ctx, '❌ Нет шагов для добавления.');
-    }
+    state.pendingStepSlider = { index };
     pendingTasks.set(userId, state);
-    await ctx.answerCbQuery('🗑 Удалено');
+    await ctx.answerCbQuery();
+    await renderPendingStepSlider(ctx, userId);
+  });
+
+  // Список pending-шагов — открыть слайдер с начала
+  bot.action(/^aps_slider_(\d+)$/, async (ctx) => {
+    const index  = parseInt(ctx.match[1]);
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
+    state.pendingStepSlider = { index };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPendingStepSlider(ctx, userId);
+  });
+
+  // Список pending-шагов — пагинация
+  bot.action(/^aps_page_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
+    state.pendingSteps.page = parseInt(ctx.match[1]);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
     await renderPendingSteps(ctx, userId);
   });
 
-  // Редактировать шаг из pending-списка
-  bot.action(/^ai_step_edit_(\d+)$/, async (ctx) => {
-    const index  = parseInt(ctx.match[1]);
+  // Слайдер — назад к списку
+  bot.action('aps_back', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId) ?? {};
-    if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
-    const current = state.pendingSteps.steps[index];
-    state.editingPendingStep = { index, taskId: state.pendingSteps.taskId };
+    delete state.pendingStepSlider;
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
-    await safeEdit(ctx, `✏️ Новое название шага:\nТекущее: \`${current}\``, {
+    await renderPendingSteps(ctx, userId);
+  });
+
+  // Слайдер — навигация
+  bot.action('aps_prev', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.pendingStepSlider) return ctx.answerCbQuery();
+    state.pendingStepSlider.index = Math.max(0, state.pendingStepSlider.index - 1);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPendingStepSlider(ctx, userId);
+  });
+  bot.action('aps_next', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.pendingStepSlider) return ctx.answerCbQuery();
+    state.pendingStepSlider.index++;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPendingStepSlider(ctx, userId);
+  });
+  bot.action('aps_noop', ctx => ctx.answerCbQuery());
+
+  // Слайдер — удалить текущий шаг
+  bot.action('aps_del', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps || !state.pendingStepSlider) return ctx.answerCbQuery('Сессия устарела.');
+    const { index } = state.pendingStepSlider;
+    state.pendingSteps.steps.splice(index, 1);
+    await ctx.answerCbQuery('🗑 Удалено');
+    if (state.pendingSteps.steps.length === 0) {
+      delete state.pendingSteps;
+      delete state.pendingStepSlider;
+      pendingTasks.set(userId, state);
+      return safeEdit(ctx, '❌ Нет шагов для добавления.');
+    }
+    state.pendingStepSlider.index = Math.min(index, state.pendingSteps.steps.length - 1);
+    pendingTasks.set(userId, state);
+    await renderPendingStepSlider(ctx, userId);
+  });
+
+  // Слайдер — редактировать текущий шаг
+  bot.action('aps_edit', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps || !state.pendingStepSlider) return ctx.answerCbQuery('Сессия устарела.');
+    const { index } = state.pendingStepSlider;
+    const current = state.pendingSteps.steps[index];
+    state.editingPendingStep = index;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, `✏️ *Новое название шага:*\nТекущее: \`${current}\``, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'ai_step_edit_cancel')]]),
+      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'aps_edit_cancel')]]),
     });
   });
 
-  // Отмена редактирования pending-шага
-  bot.action('ai_step_edit_cancel', async (ctx) => {
+  bot.action('aps_edit_cancel', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId) ?? {};
     delete state.editingPendingStep;
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
-    await renderPendingSteps(ctx, userId);
+    if (state.pendingStepSlider) await renderPendingStepSlider(ctx, userId);
+    else await renderPendingSteps(ctx, userId);
+  });
+
+  // Слайдер — переместить шаг вверх
+  bot.action('aps_up', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.pendingSteps || !state?.pendingStepSlider) return ctx.answerCbQuery();
+    const { index } = state.pendingStepSlider;
+    if (index > 0) {
+      const steps = state.pendingSteps.steps;
+      [steps[index - 1], steps[index]] = [steps[index], steps[index - 1]];
+      state.pendingStepSlider.index = index - 1;
+      pendingTasks.set(userId, state);
+    }
+    await ctx.answerCbQuery();
+    await renderPendingStepSlider(ctx, userId);
+  });
+
+  // Слайдер — переместить шаг вниз
+  bot.action('aps_down', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.pendingSteps || !state?.pendingStepSlider) return ctx.answerCbQuery();
+    const { index } = state.pendingStepSlider;
+    const steps = state.pendingSteps.steps;
+    if (index < steps.length - 1) {
+      [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      state.pendingStepSlider.index = index + 1;
+      pendingTasks.set(userId, state);
+    }
+    await ctx.answerCbQuery();
+    await renderPendingStepSlider(ctx, userId);
+  });
+
+  // Список — добавить новый шаг
+  bot.action('aps_add', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
+    state.addingPendingStep = true;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, '✏️ Напиши название нового шага:', {
+      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'aps_back')]]),
+    });
   });
 
   // Заменить все шаги AI-предложенными
@@ -242,4 +406,4 @@ function register(bot) {
   });
 }
 
-module.exports = { register, renderPendingSteps };
+module.exports = { register, renderPendingSteps, renderPendingStepSlider };

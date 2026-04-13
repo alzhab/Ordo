@@ -28,7 +28,7 @@ const {
 } = require('../../../application/subtasks');
 const { isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const { syncNewGoalToNotion } = require('./goals');
-const { renderPendingSteps } = require('./subtasks');
+const { renderPendingSteps, renderPendingStepSlider } = require('./subtasks');
 
 // ─── Одиночные действия над задачей ──────────────────────
 
@@ -288,12 +288,23 @@ async function handleText(ctx, text) {
     });
   }
 
-  // Редактирование pending AI-шага
-  if (state?.editingPendingStep) {
-    const { index } = state.editingPendingStep;
+  // Редактирование pending AI-шага (editingPendingStep = index)
+  if (state?.editingPendingStep !== undefined) {
+    const index = state.editingPendingStep;
     delete state.editingPendingStep;
     if (state.pendingSteps?.steps) {
       state.pendingSteps.steps[index] = text.trim();
+    }
+    pendingTasks.set(userId, state);
+    if (state.pendingStepSlider) return renderPendingStepSlider(ctx, userId, true);
+    return renderPendingSteps(ctx, userId, true);
+  }
+
+  // Добавление нового pending AI-шага
+  if (state?.addingPendingStep) {
+    delete state.addingPendingStep;
+    if (state.pendingSteps?.steps) {
+      state.pendingSteps.steps.push(text.trim());
     }
     pendingTasks.set(userId, state);
     return renderPendingSteps(ctx, userId, true);
