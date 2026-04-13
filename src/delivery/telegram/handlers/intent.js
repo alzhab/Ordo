@@ -28,6 +28,7 @@ const {
 } = require('../../../application/subtasks');
 const { isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const { syncNewGoalToNotion } = require('./goals');
+const { renderPendingSteps } = require('./subtasks');
 
 // ─── Одиночные действия над задачей ──────────────────────
 
@@ -287,6 +288,17 @@ async function handleText(ctx, text) {
     });
   }
 
+  // Редактирование pending AI-шага
+  if (state?.editingPendingStep) {
+    const { index } = state.editingPendingStep;
+    delete state.editingPendingStep;
+    if (state.pendingSteps?.steps) {
+      state.pendingSteps.steps[index] = text.trim();
+    }
+    pendingTasks.set(userId, state);
+    return renderPendingSteps(ctx, userId, true);
+  }
+
   // Поиск по задачам
   if (state?.searchingTasks) {
     delete state.searchingTasks;
@@ -481,6 +493,7 @@ async function saveAndReply(ctx, userId, parsed, timezone) {
   if (!task.subtasks?.length) {
     rows.push([Markup.button.callback('🤖 Предложить шаги', `ai_steps_${saved.id}`)]);
   }
+  rows.push([Markup.button.callback('📋 Открыть задачу', `tv_${saved.id}`)]);
   rows.push([
     Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`),
     Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`),

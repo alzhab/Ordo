@@ -76,7 +76,7 @@ async function renderTaskSlider(ctx, userId, edit = false) {
   const text = formatTaskDetail(task, tz);
   const counter = `${index + 1} / ${taskIds.length}`;
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback(`📋 К списку`, 'tsl_back')],
+    [Markup.button.callback('📋 К списку', 'tsl_back'), Markup.button.callback('🔗 Открыть', `tv_${task.id}`)],
     [
       Markup.button.callback('◀️', index > 0 ? 'tsl_prev' : 'tsl_noop'),
       Markup.button.callback(counter, 'tsl_noop'),

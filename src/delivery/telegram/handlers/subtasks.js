@@ -18,6 +18,31 @@ const { getNotionEnabled } = require('../../../application/settings');
 
 function notionEnabled(userId) { return notionConfigured() && getNotionEnabled(userId); }
 
+function renderPendingSteps(ctx, userId, reply = false) {
+  const state = pendingTasks.get(userId);
+  if (!state?.pendingSteps) return;
+  const { taskId, steps, hasExisting } = state.pendingSteps;
+
+  const header = `🤖 *${hasExisting ? 'Обновлённые шаги' : 'Предлагаемые шаги'} (${steps.length}):*`;
+
+  const stepRows = steps.map((s, i) => [
+    Markup.button.callback(`☐ ${s}`, `ai_step_edit_${i}`),
+    Markup.button.callback('🗑', `ai_step_del_${i}`),
+  ]);
+
+  const confirmRows = hasExisting
+    ? [
+        [Markup.button.callback(`🔄 Заменить все (${steps.length})`, `ai_steps_replace_${taskId}`), Markup.button.callback(`➕ Добавить новые`, `ai_steps_merge_${taskId}`)],
+        [Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
+      ]
+    : [
+        [Markup.button.callback(`✅ Добавить (${steps.length})`, `ai_steps_replace_${taskId}`), Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
+      ];
+
+  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard([...stepRows, ...confirmRows]) };
+  return reply ? ctx.reply(header, opts) : safeEdit(ctx, header, opts);
+}
+
 function register(bot) {
   // Открыть список шагов
   bot.action(/^steps_(\d+)$/, async (ctx) => {
@@ -109,23 +134,55 @@ function register(bot) {
       const state  = pendingTasks.get(userId) ?? {};
       state.pendingSteps = { taskId, steps, hasExisting: existing.length > 0 };
       pendingTasks.set(userId, state);
-      const preview = steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
-      const header  = existing.length > 0
-        ? `🤖 *Обновлённый список шагов:*\n\n${preview}`
-        : `🤖 *Предлагаемые шаги:*\n\n${preview}`;
-      const buttons = existing.length > 0
-        ? [
-            [Markup.button.callback('🔄 Заменить все', `ai_steps_replace_${taskId}`), Markup.button.callback('➕ Добавить новые', `ai_steps_merge_${taskId}`)],
-            [Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
-          ]
-        : [
-            [Markup.button.callback('✅ Добавить', `ai_steps_replace_${taskId}`), Markup.button.callback('❌ Отмена', `steps_${taskId}`)],
-          ];
-      await safeEdit(ctx, header, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+      await renderPendingSteps(ctx, userId);
     } catch (e) {
       console.error(e);
       await safeEdit(ctx, '❌ Не удалось сгенерировать шаги.');
     }
+  });
+
+  // Удалить шаг из pending-списка
+  bot.action(/^ai_step_del_(\d+)$/, async (ctx) => {
+    const index  = parseInt(ctx.match[1]);
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
+    state.pendingSteps.steps.splice(index, 1);
+    if (state.pendingSteps.steps.length === 0) {
+      delete state.pendingSteps;
+      pendingTasks.set(userId, state);
+      await ctx.answerCbQuery('Все шаги удалены');
+      return safeEdit(ctx, '❌ Нет шагов для добавления.');
+    }
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery('🗑 Удалено');
+    await renderPendingSteps(ctx, userId);
+  });
+
+  // Редактировать шаг из pending-списка
+  bot.action(/^ai_step_edit_(\d+)$/, async (ctx) => {
+    const index  = parseInt(ctx.match[1]);
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    if (!state.pendingSteps) return ctx.answerCbQuery('Сессия устарела.');
+    const current = state.pendingSteps.steps[index];
+    state.editingPendingStep = { index, taskId: state.pendingSteps.taskId };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, `✏️ Новое название шага:\nТекущее: \`${current}\``, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'ai_step_edit_cancel')]]),
+    });
+  });
+
+  // Отмена редактирования pending-шага
+  bot.action('ai_step_edit_cancel', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    delete state.editingPendingStep;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPendingSteps(ctx, userId);
   });
 
   // Заменить все шаги AI-предложенными
@@ -185,4 +242,4 @@ function register(bot) {
   });
 }
 
-module.exports = { register };
+module.exports = { register, renderPendingSteps };

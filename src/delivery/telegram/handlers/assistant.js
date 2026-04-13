@@ -5,7 +5,7 @@ const { isQuietMode, getSettings } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, advanceRecurring } = require('../../../application/tasks');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
-const { formatTaskDetail } = require('../formatters');
+const { formatTaskDetail, formatTaskText } = require('../formatters');
 
 const PAGE_SIZE = 6;
 
@@ -185,36 +185,34 @@ async function renderPlanList(ctx, userId) {
     ? `📋 *Запланировано (${total})* — ${formatDateLabel(date)}`
     : `🤖 *Рекомендации AI (${total})*`;
 
-  const lines = [header, ''];
-  if (category === 'planned') {
-    pageItems.forEach((task, i) => {
-      const icon = task.status === 'done' ? '✅' : (task.is_recurring ? '🔄' : '☐');
-      lines.push(`${offset + i + 1}. ${icon} ${task.title}`);
-    });
-  } else {
-    pageItems.forEach((item, i) => {
-      const task = getTaskById(item.id);
-      if (!task) return;
-      lines.push(`${offset + i + 1}. ${task.title}`);
-      lines.push(`    _→ ${item.reason}_`);
-    });
-  }
+  const taskRows = category === 'planned'
+    ? pageItems.map((task, i) => [
+        Markup.button.callback(formatTaskText(task, offset + i + 1), `plan_list_item_${task.id}`),
+      ])
+    : pageItems.map((item, i) => {
+        const task = getTaskById(item.id);
+        if (!task) return null;
+        return [Markup.button.callback(
+          `${offset + i + 1}. 🤖 ${task.title}`,
+          `plan_list_item_${item.id}`,
+        )];
+      }).filter(Boolean);
 
-  const buttons = [];
+  const extraRows = [];
   if (total > 0) {
-    buttons.push([Markup.button.callback(`▶️ Просмотр (${total})`, 'plan_list_slider')]);
+    extraRows.push([Markup.button.callback(`▶️ Просмотр (${total})`, 'plan_list_slider')]);
   }
   if (totalPages > 1) {
-    buttons.push([
+    extraRows.push([
       Markup.button.callback('◀️', p > 0 ? `plan_list_page_${p - 1}` : 'plan_noop'),
       Markup.button.callback(`${p + 1} / ${totalPages}`, 'plan_noop'),
       Markup.button.callback('▶️', p < totalPages - 1 ? `plan_list_page_${p + 1}` : 'plan_noop'),
     ]);
   }
-  buttons.push([Markup.button.callback('◀️ К плану', 'plan_list_back')]);
+  extraRows.push([Markup.button.callback('◀️ К плану', 'plan_list_back')]);
 
   pendingTasks.set(userId, state);
-  await safeEdit(ctx, lines.join('\n'), { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  await safeEdit(ctx, header, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([...taskRows, ...extraRows]) });
 }
 
 async function renderPlanSlider(ctx, userId) {
@@ -249,7 +247,7 @@ async function renderPlanSlider(ctx, userId) {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('✅ Сделал', `plan_done_${task.id}`), Markup.button.callback('📅 На завтра', `plan_tomorrow_${task.id}`)],
-        [Markup.button.callback('❌ Убрать из плана', `plan_unplan_${task.id}`)],
+        [Markup.button.callback('❌ Убрать из плана', `plan_unplan_${task.id}`), Markup.button.callback('🔗 Открыть', `tv_${task.id}`)],
         nav,
       ]),
     });
@@ -274,7 +272,7 @@ async function renderPlanSlider(ctx, userId) {
     await safeEdit(ctx, `🤖 _→ ${reason}_\n\n${detail}\n\n${counter}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('➕ Добавить в план', `plan_add_${date}_${task.id}`)],
+        [Markup.button.callback('➕ Добавить в план', `plan_add_${date}_${task.id}`), Markup.button.callback('🔗 Открыть', `tv_${task.id}`)],
         nav,
       ]),
     });
@@ -517,12 +515,29 @@ function register(bot) {
     await renderPlanSummary(ctx, userId);
   });
 
-  // Plan — открыть слайдер из списка
+  // Plan — открыть слайдер из списка (с начала)
   bot.action('plan_list_slider', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId);
     if (!state?.planList) return ctx.answerCbQuery();
     state.planSlider = { category: state.planList.category, index: 0 };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderPlanSlider(ctx, userId);
+  });
+
+  // Plan — открыть слайдер на конкретной задаче
+  bot.action(/^plan_list_item_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const taskId = parseInt(ctx.match[1]);
+    const state  = pendingTasks.get(userId);
+    if (!state?.planList || !state?.planData) return ctx.answerCbQuery();
+    const { category } = state.planList;
+    const { plannedIds, suggestions } = state.planData;
+    const index = category === 'planned'
+      ? plannedIds.indexOf(taskId)
+      : suggestions.findIndex(s => s.id === taskId);
+    state.planSlider = { category, index: Math.max(0, index) };
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
     await renderPlanSlider(ctx, userId);
