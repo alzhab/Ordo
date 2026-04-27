@@ -13,6 +13,7 @@ const {
 const { taskDetailButtons, stepsButtons } = require('../keyboards');
 const { renderTaskListFiltered, renderPlanTaskList } = require('../renderers');
 const { parseIntent } = require('../../../infrastructure/ai/parser');
+const { handlePlanForDate, handleReview } = require('./assistant');
 const { transcribeVoice } = require('../../../infrastructure/ai/whisper');
 const {
   getTasks, getTasksByPlannedDate, getTaskById, updateTask, deleteTask, saveTask, isNotionEnabled,
@@ -110,15 +111,42 @@ async function handleManageTask(ctx, userId, parsed) {
   return ctx.reply('Найдено несколько задач — выбери нужную:', Markup.inlineKeyboard(rows));
 }
 
+function formatQueryDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
 async function handleQueryTasks(ctx, userId, parsed) {
+  const { formatTaskText } = require('../formatters');
+
   if (parsed.date === 'today') {
-    const today = new Date().toISOString().split('T')[0];
+    const tz = getSettings(userId).timezone;
+    const today = localNow(tz);
     const tasks = getTasksByPlannedDate(userId, today);
     if (tasks.length === 0) return ctx.reply('На сегодня задач не запланировано.');
-    const { formatTaskText } = require('../formatters');
     const rows = tasks.slice(0, 15).map((t, i) => [Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`)]);
     return ctx.reply(`📅 *Задачи на сегодня (${tasks.length}):*`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
   }
+
+  // ISO date — задачи на конкретную дату
+  if (parsed.date && parsed.date !== 'week' && parsed.date !== 'no_date') {
+    const tasks = getTasksByPlannedDate(userId, parsed.date);
+    const label = formatQueryDate(parsed.date);
+    if (tasks.length === 0) return ctx.reply(`На ${label} задач не запланировано.`);
+    const rows = tasks.slice(0, 15).map((t, i) => [Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`)]);
+    return ctx.reply(`📅 *Задачи на ${label} (${tasks.length}):*`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
+  }
+
+  // Задачи без даты
+  if (parsed.date === 'no_date') {
+    const all = getTasks(userId, {});
+    const tasks = all.filter(t => !t.planned_for);
+    if (tasks.length === 0) return ctx.reply('Задач без даты нет.');
+    const rows = tasks.slice(0, 15).map((t, i) => [Markup.button.callback(formatTaskText(t, i + 1), `tv_${t.id}`)]);
+    return ctx.reply(`📋 *Задачи без даты (${tasks.length}):*`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
+  }
+
   const filter = {};
   if (parsed.category) filter.category = parsed.category;
   if (parsed.status)   filter.status   = parsed.status;
@@ -129,6 +157,21 @@ async function handleQueryTasks(ctx, userId, parsed) {
   }
   taskFilters.set(userId, filter);
   return renderTaskListFiltered(ctx, userId, filter);
+}
+
+async function handleUnplanTasks(ctx, userId, parsed) {
+  const tz = getSettings(userId).timezone;
+  const date = parsed.date ?? localNow(tz);
+  const tasks = getTasksByPlannedDate(userId, date);
+  if (tasks.length === 0) {
+    const label = formatQueryDate(date);
+    return ctx.reply(`На ${label} задач нет.`);
+  }
+  for (const t of tasks) {
+    updateTask(t.id, { planned_for: null }, userId);
+  }
+  const label = formatQueryDate(date);
+  return ctx.reply(`✅ Убрано ${tasks.length} задач из плана на ${label}.`);
 }
 
 async function executeGoalAction(ctx, userId, goal, action) {
@@ -498,6 +541,13 @@ async function handleText(ctx, text) {
   if (parsed.intent === 'manage_settings')   return handleManageSettings(ctx, userId, parsed);
   if (parsed.intent === 'create_recurring')       return handleCreateRecurring(ctx, userId, parsed);
   if (parsed.intent === 'create_recurring_batch') return handleCreateRecurringBatch(ctx, userId, parsed);
+  if (parsed.intent === 'open_plan') {
+    const tz   = getSettings(userId).timezone;
+    const date = parsed.date ?? localNow(tz);
+    return handlePlanForDate(ctx, date);
+  }
+  if (parsed.intent === 'open_review') return handleReview(ctx);
+  if (parsed.intent === 'unplan_tasks') return handleUnplanTasks(ctx, userId, parsed);
 
   if (parsed.intent === 'create_goal' || parsed.intent === 'create_plan') {
     const goal = createGoal(userId, { title: parsed.title, description: parsed.description });

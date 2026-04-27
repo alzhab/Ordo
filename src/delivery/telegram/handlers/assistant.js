@@ -1030,4 +1030,4 @@ function register(bot) {
 
 }
 
-module.exports = { register, handlePlan, handleReview };
+module.exports = { register, handlePlan, handlePlanForDate, handleReview };
