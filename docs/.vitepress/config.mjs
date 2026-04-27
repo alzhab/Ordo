@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+import {defineConfig} from 'vitepress'
 
 export default defineConfig({
   title: 'Ordo',
@@ -24,16 +24,7 @@ export default defineConfig({
     ],
 
     sidebar: [
-      {
-        items: [
-          { text: '🏠 Главная', link: '/' },
-          { text: '📝 Запись задач', link: '/capture' },
-          { text: '📅 Утренний план', link: '/plan' },
-          { text: '🔍 Вечерний разбор', link: '/review' },
-          { text: '🎯 Цели и проекты', link: '/goals' },
-          { text: '💬 Все команды', link: '/commands' },
-        ],
-      },
+
     ],
 
     socialLinks: [

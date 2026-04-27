@@ -23,18 +23,7 @@ export default defineConfig({
 			{ text: 'Команды', link: '/commands' },
     ],
 
-    sidebar: [
-			{
-				items: [
-					{ text: '🏠 Главная', link: '/' },
-					{ text: '📝 Запись задач', link: '/capture' },
-					{ text: '📅 Утренний план', link: '/plan' },
-					{ text: '🔍 Вечерний разбор', link: '/review' },
-					{ text: '🎯 Цели и проекты', link: '/goals' },
-					{ text: '💬 Все команды', link: '/commands' },
-				],
-			},
-		],
+    sidebar: [],
 
     socialLinks: [
       { icon: 'github', link: 'https://github.com/alzhab/Ordo' },
