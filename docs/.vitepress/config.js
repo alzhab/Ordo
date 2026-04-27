@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+import {defineConfig} from 'vitepress'
 
 export default defineConfig({
   title: 'Ordo',
@@ -16,9 +16,25 @@ export default defineConfig({
 
     nav: [
       { text: 'Главная', link: '/' },
+			{ text: 'Запись задач', link: '/capture' },
+			{ text: 'Утренний план', link: '/plan' },
+			{ text: 'Вечерний разбор', link: '/review' },
+			{ text: 'Цели', link: '/goals' },
+			{ text: 'Команды', link: '/commands' },
     ],
 
-    sidebar: [],
+    sidebar: [
+			{
+				items: [
+					{ text: '🏠 Главная', link: '/' },
+					{ text: '📝 Запись задач', link: '/capture' },
+					{ text: '📅 Утренний план', link: '/plan' },
+					{ text: '🔍 Вечерний разбор', link: '/review' },
+					{ text: '🎯 Цели и проекты', link: '/goals' },
+					{ text: '💬 Все команды', link: '/commands' },
+				],
+			},
+		],
 
     socialLinks: [
       { icon: 'github', link: 'https://github.com/alzhab/Ordo' },
