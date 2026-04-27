@@ -14,17 +14,19 @@ export default defineConfig({
   themeConfig: {
     logo: '/logo.svg',
 
-    nav: [
-      { text: 'Главная', link: '/' },
-      { text: 'Запись задач', link: '/capture' },
-      { text: 'Утренний план', link: '/plan' },
-      { text: 'Вечерний разбор', link: '/review' },
-      { text: 'Цели', link: '/goals' },
-      { text: 'Команды', link: '/commands' },
-    ],
+    nav: [],
 
     sidebar: [
-
+      {
+        items: [
+          { text: 'Главная', link: '/' },
+          { text: 'Запись задач', link: '/capture' },
+          { text: 'Утренний план', link: '/plan' },
+          { text: 'Вечерний разбор', link: '/review' },
+          { text: 'Цели и проекты', link: '/goals' },
+          { text: 'Все команды', link: '/commands' },
+        ],
+      },
     ],
 
     socialLinks: [
