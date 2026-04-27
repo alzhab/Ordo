@@ -249,15 +249,184 @@
   color: #fff !important;
 }
 
+/* Feature nav cards on home page */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 32px 0;
+}
+
+.feature-card {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 14px;
+  padding: 22px;
+  text-decoration: none !important;
+  display: block;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+
+.feature-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(124,58,237,0.12);
+  border-color: var(--vp-c-brand-1);
+}
+
+.feature-card-icon { font-size: 28px; margin-bottom: 10px; }
+
+.feature-card-title {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--vp-c-text-1);
+  margin-bottom: 6px;
+}
+
+.feature-card-desc {
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  line-height: 1.55;
+}
+
+/* Telegram-style chat examples */
+.tg-chat {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin: 20px 0;
+  max-width: 460px;
+  font-size: 14px;
+}
+
+.tg-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.tg-row:last-child { margin-bottom: 0; }
+
+.tg-label {
+  font-size: 11px;
+  color: var(--vp-c-text-3);
+  margin-bottom: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tg-row.user .tg-label { text-align: right; color: #7c3aed; }
+
+.tg-bubble {
+  padding: 9px 13px;
+  border-radius: 14px;
+  line-height: 1.55;
+  display: inline-block;
+  max-width: 88%;
+  white-space: pre-line;
+}
+
+.tg-row.user {
+  align-items: flex-end;
+}
+
+.tg-row.user .tg-bubble {
+  background: #7c3aed;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.tg-row.bot .tg-bubble {
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-border);
+  border-bottom-left-radius: 4px;
+  color: var(--vp-c-text-1);
+}
+
+.tg-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tg-btn {
+  padding: 5px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  border: 1px solid transparent;
+  font-family: inherit;
+  cursor: default;
+}
+
+/* Tip / callout box */
+.tip-box {
+  background: var(--vp-c-brand-soft);
+  border-left: 3px solid var(--vp-c-brand-1);
+  border-radius: 0 10px 10px 0;
+  padding: 14px 18px;
+  margin: 20px 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--vp-c-text-1);
+}
+
+/* Examples grid */
+.examples-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.example-card {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.example-input {
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  margin-bottom: 6px;
+}
+
+.example-input::before { content: '💬 '; }
+
+.example-result {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.status-todo     { background: #e0f2fe; color: #0369a1; }
+.status-waiting  { background: #fef9c3; color: #854d0e; }
+.status-maybe    { background: #f0fdf4; color: #166534; }
+.status-done     { background: #f0fdf4; color: #15803d; }
+
+.dark .status-todo    { background: #0c4a6e; color: #7dd3fc; }
+.dark .status-waiting { background: #451a03; color: #fcd34d; }
+.dark .status-maybe   { background: #052e16; color: #86efac; }
+.dark .status-done    { background: #052e16; color: #4ade80; }
+
 /* Mobile */
 @media (max-width: 768px) {
-  .tools-grid {
-    grid-template-columns: 1fr;
-  }
-  .day-columns {
-    grid-template-columns: 1fr;
-  }
-  .roles-grid {
-    grid-template-columns: 1fr;
-  }
+  .tools-grid      { grid-template-columns: 1fr; }
+  .day-columns     { grid-template-columns: 1fr; }
+  .roles-grid      { grid-template-columns: 1fr; }
+  .features-grid   { grid-template-columns: 1fr; }
+  .examples-grid   { grid-template-columns: 1fr; }
 }
