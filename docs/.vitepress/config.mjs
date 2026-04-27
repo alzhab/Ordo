@@ -16,28 +16,17 @@ export default defineConfig({
 
     nav: [
       { text: 'Главная', link: '/' },
-      {
-        text: 'Как работает',
-        items: [
-          { text: '📝 Запись задач', link: '/capture' },
-          { text: '📅 Утренний план', link: '/plan' },
-          { text: '🔍 Вечерний разбор', link: '/review' },
-          { text: '🎯 Цели и проекты', link: '/goals' },
-          { text: '💬 Все команды', link: '/commands' },
-        ],
-      },
+      { text: 'Запись задач', link: '/capture' },
+      { text: 'Утренний план', link: '/plan' },
+      { text: 'Вечерний разбор', link: '/review' },
+      { text: 'Цели', link: '/goals' },
+      { text: 'Команды', link: '/commands' },
     ],
 
     sidebar: [
       {
-        text: 'Начало',
         items: [
           { text: '🏠 Главная', link: '/' },
-        ],
-      },
-      {
-        text: 'Функционал',
-        items: [
           { text: '📝 Запись задач', link: '/capture' },
           { text: '📅 Утренний план', link: '/plan' },
           { text: '🔍 Вечерний разбор', link: '/review' },
