@@ -105,8 +105,24 @@ require('./handlers/intent').register(bot);
 const scheduler = require('./scheduler');
 let schedulerTask;
 
-// bot.launch() in long-polling mode never resolves — start scheduler right away
-bot.launch().catch(err => console.error('[fatal] bot.launch() error:', err.message));
+// bot.launch() с retry — Railway иногда теряет сеть при старте
+async function launchWithRetry(attempts = 5, delayMs = 5000) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await bot.launch();
+      return;
+    } catch (err) {
+      console.error(`[fatal] bot.launch() error (attempt ${i}/${attempts}):`, err.message);
+      if (i < attempts) {
+        console.log(`[bot] retry in ${delayMs / 1000}s...`);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+  }
+  console.error('[fatal] bot.launch() failed after all retries, exiting');
+  process.exit(1);
+}
+launchWithRetry();
 schedulerTask = scheduler.start(bot);
 console.log('Бот запущен!');
 bot.telegram.setMyCommands([

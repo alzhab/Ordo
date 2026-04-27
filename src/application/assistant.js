@@ -143,11 +143,12 @@ ${goalsText}
 
 // ─── Данные для /review ───────────────────────────────────────
 
-// Возвращает плоский список задач для разбора (до 5), упорядоченных по срочности.
-// Каждая задача дополняется полем reason — почему она здесь.
+// Возвращает задачи сгруппированные по 4 категориям + плоский список all.
+// Без лимитов и временных порогов — пользователь видит все задачи требующие внимания.
 function getReviewData(userId) {
   const { timezone } = getSettings(userId);
   const today = localNow(timezone);
+  const now = Date.now();
 
   const tasks = db.prepare(`
     SELECT t.*, c.name AS category_name
@@ -156,45 +157,51 @@ function getReviewData(userId) {
     WHERE t.user_id = ?
       AND t.status IN ('todo', 'waiting', 'maybe')
       AND t.is_recurring != 1
-      AND (
-        (t.status = 'waiting' AND t.waiting_until IS NOT NULL AND t.waiting_until < ?)
-        OR (t.status = 'waiting' AND t.waiting_until IS NULL
-            AND julianday(?) - julianday(t.updated_at) > 5)
-        OR (t.status = 'todo' AND t.planned_for IS NULL
-            AND julianday(?) - julianday(t.updated_at) > 7)
-        OR (t.status = 'maybe'
-            AND julianday(?) - julianday(t.updated_at) > 7)
-      )
-    ORDER BY
-      CASE
-        WHEN t.status = 'waiting' AND t.waiting_until IS NOT NULL AND t.waiting_until < ? THEN 1
-        WHEN t.status = 'waiting' AND t.waiting_until IS NULL THEN 2
-        WHEN t.status = 'todo' THEN 3
-        WHEN t.status = 'maybe' THEN 4
-      END,
-      t.updated_at ASC
-    LIMIT 5
-  `).all(userId, today, today, today, today, today);
+    ORDER BY t.updated_at ASC
+  `).all(userId);
 
-  const now = Date.now();
-  return tasks.map(t => {
-    const days = Math.max(0, Math.floor(
-      (now - new Date(t.updated_at.replace(' ', 'T') + 'Z').getTime()) / 86400000
-    ));
-    let reason;
+  function daysAgo(dateStr) {
+    if (!dateStr) return 0;
+    const d = new Date(dateStr.replace(' ', 'T') + 'Z');
+    return Math.max(0, Math.floor((now - d.getTime()) / 86400000));
+  }
+
+  const overdue = [];
+  const waiting = [];
+  const inbox   = [];
+  const maybe   = [];
+
+  for (const t of tasks) {
+    const days = daysAgo(t.updated_at);
+
     if (t.status === 'waiting' && t.waiting_until && t.waiting_until < today) {
-      reason = `Срок ожидания вышел`;
+      let reason = 'Срок ожидания вышел';
       if (t.waiting_reason) reason += ` (${t.waiting_reason})`;
+      overdue.push({ ...t, reason, group: 'overdue' });
+    } else if (t.status === 'todo' && t.planned_for && t.planned_for < today) {
+      overdue.push({ ...t, reason: `Просрочена: было на ${t.planned_for}`, group: 'overdue' });
     } else if (t.status === 'waiting') {
-      reason = `Ждёт уже ${days} дн.`;
+      let reason = `Ждёт уже ${days} дн.`;
       if (t.waiting_reason) reason += ` — ${t.waiting_reason}`;
+      waiting.push({ ...t, reason, group: 'waiting' });
+    } else if (t.status === 'todo' && !t.planned_for) {
+      inbox.push({ ...t, reason: `Добавлена ${days} дн. назад`, group: 'inbox' });
     } else if (t.status === 'maybe') {
-      reason = `Отложено ${days} дн. назад`;
-    } else {
-      reason = `Висит ${days} дн. без даты`;
+      maybe.push({ ...t, reason: `Отложено ${days} дн. назад`, group: 'maybe' });
     }
-    return { ...t, reason };
-  });
+    // todo с будущей planned_for: уже в плане, пропускаем
+  }
+
+  const groups = [
+    { key: 'overdue', label: '⏰ Просрочено',  tasks: overdue },
+    { key: 'waiting', label: '⏳ В ожидании',  tasks: waiting },
+    { key: 'inbox',   label: '📋 Без даты',    tasks: inbox   },
+    { key: 'maybe',   label: '💤 Отложено',    tasks: maybe   },
+  ].filter(g => g.tasks.length > 0);
+
+  const all = [...overdue, ...waiting, ...inbox, ...maybe];
+
+  return { groups, all };
 }
 
 module.exports = { getPlanRecommendations, getReviewData, invalidatePlanCache };

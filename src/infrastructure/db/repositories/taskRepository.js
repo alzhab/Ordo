@@ -60,9 +60,9 @@ function createTask(userId, parsed) {
     parsed.status ?? 'todo',
     parsed.category_id ?? null,
     parsed.goal_id ?? null,
-    parsed.plannedFor ?? null,
+    parsed.plannedFor ? String(parsed.plannedFor).slice(0, 10) : null,
     parsed.waiting_reason ?? null,
-    parsed.waiting_until ?? null,
+    parsed.waiting_until ? String(parsed.waiting_until).slice(0, 10) : null,
     parsed.reminder_at ?? null,
     parsed.is_recurring ? 1 : 0,
     recurDays,
@@ -159,6 +159,8 @@ function updateTask(id, fields) {
     fields = { ...fields, goal_id: fields.plan_id };
     delete fields.plan_id;
   }
+  if (fields.planned_for) fields = { ...fields, planned_for: String(fields.planned_for).slice(0, 10) };
+  if (fields.waiting_until) fields = { ...fields, waiting_until: String(fields.waiting_until).slice(0, 10) };
   const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent', 'is_recurring', 'recur_days', 'recur_day_of_month', 'recur_time', 'recur_remind_before'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);

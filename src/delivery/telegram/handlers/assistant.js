@@ -293,10 +293,10 @@ async function handleReview(ctx) {
 }
 
 async function renderReviewSummary(ctx, userId, reply = false) {
-  const tasks = getReviewData(userId);
+  const { groups, all } = getReviewData(userId);
 
-  if (tasks.length === 0) {
-    const text = '🎉 *Всё под контролем!*\n\nНет зависших задач. Все задачи либо запланированы, либо в ожидании.';
+  if (all.length === 0) {
+    const text = '🎉 *Всё под контролем!*\n\nНет задач требующих внимания. Все активные задачи уже запланированы.';
     const opts = {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([[Markup.button.callback('📋 Открыть план на сегодня', 'rv_open_plan')]]),
@@ -306,17 +306,28 @@ async function renderReviewSummary(ctx, userId, reply = false) {
 
   const state = pendingTasks.get(userId) ?? {};
   state.reviewData = {
-    taskIds: tasks.map(t => t.id),
-    reasons: Object.fromEntries(tasks.map(t => [t.id, t.reason])),
+    taskIds: all.map(t => t.id),
+    reasons: Object.fromEntries(all.map(t => [t.id, t.reason])),
   };
   pendingTasks.set(userId, state);
 
-  const lines = [`🔍 *Разбор задач* (${tasks.length})\n`];
-  tasks.forEach((t, i) => {
-    lines.push(`${i + 1}. 📋 *${t.title}*`);
-    lines.push(`    _${t.reason}_`);
-  });
-  const text = lines.join('\n');
+  const MAX_PER_GROUP = 5;
+  const lines = [`🔍 *Разбор задач* (${all.length})\n`];
+
+  for (const group of groups) {
+    lines.push(`${group.label} — *${group.tasks.length}*`);
+    const toShow = group.tasks.slice(0, MAX_PER_GROUP);
+    for (const t of toShow) {
+      lines.push(`• ${t.title}`);
+      lines.push(`  _${t.reason}_`);
+    }
+    if (group.tasks.length > MAX_PER_GROUP) {
+      lines.push(`  _...и ещё ${group.tasks.length - MAX_PER_GROUP}_`);
+    }
+    lines.push('');
+  }
+
+  const text = lines.join('\n').trim();
   const opts = {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([[Markup.button.callback('▶️ Начать разбор', 'rv_start')]]),

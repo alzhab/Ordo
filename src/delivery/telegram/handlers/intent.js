@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal, parseTimeInput } = require('../../../shared/helpers');
+const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal, parseTimeInput, localNow } = require('../../../shared/helpers');
 const { pendingTasks, taskFilters, getFilter } = require('../../../shared/state');
 const { getSettings, updateSettings } = require('../../../application/settings');
 const { formatRecurringSchedule } = require('../formatters');
@@ -509,6 +509,16 @@ async function saveAndReply(ctx, userId, parsed, timezone) {
     Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`),
     Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`),
   ]);
+  if (saved.planned_for) {
+    const tz = getSettings(userId).timezone;
+    const today    = localNow(tz);
+    const tomorrow = (() => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+    const MONTHS   = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    const dateLabel = saved.planned_for === today    ? 'сегодня'
+                    : saved.planned_for === tomorrow ? 'завтра'
+                    : (() => { const d = new Date(saved.planned_for + 'T00:00:00'); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; })();
+    rows.push([Markup.button.callback(`📅 Открыть план на ${dateLabel}`, `mplan_${saved.planned_for}`)]);
+  }
   return ctx.reply(`✅ *${saved.title}* — сохранено`, {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard(rows),
