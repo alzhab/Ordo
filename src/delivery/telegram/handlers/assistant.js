@@ -67,7 +67,7 @@ function buildCalendarKeyboard(year, month, {
         const ds = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const past    = ds < todayStr;
         const isToday = ds === todayStr;
-        const label   = isToday ? `·${day}·` : String(day);
+        const label   = isToday ? `[${day}]` : past ? '·' : String(day);
         return past
           ? Markup.button.callback(label, noopAction)
           : Markup.button.callback(label, `${pickPrefix}${ds}`);
@@ -425,7 +425,10 @@ async function renderReviewSlider(ctx, userId) {
         Markup.button.callback('Завтра',          `rv_tomorrow_${task.id}`),
         Markup.button.callback('На этой неделе', `rv_week_${task.id}`),
       ],
-      [Markup.button.callback('📅 Выбрать дату', `rv_pick_date_${task.id}`)],
+      [
+        Markup.button.callback('📅 Выбрать дату', `rv_pick_date_${task.id}`),
+        Markup.button.callback('🔗 Открыть',       `tv_${task.id}`),
+      ],
       [
         Markup.button.callback('⏭ Отложить',      `rv_maybe_${task.id}`),
         Markup.button.callback('🗑 Удалить',       `rv_del_${task.id}`),
