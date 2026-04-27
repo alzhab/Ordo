@@ -13,6 +13,7 @@ const { TELEGRAM_BOT_TOKEN } = require('../../shared/config');
 const { getUser } = require('../../shared/helpers');
 
 const { buildSettingsText, buildSettingsKeyboard } = require('./handlers/settings');
+const { startOnboarding } = require('./handlers/onboarding');
 const { getTasks } = require('../../application/tasks');
 
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
@@ -20,27 +21,12 @@ const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 // ─── Команды ─────────────────────────────────────────────
 
 bot.start(async (ctx) => {
-  const userId   = getUser(ctx);
+  const userId    = getUser(ctx);
   const firstName = ctx.from.first_name ?? 'друг';
-  const isNew    = getTasks(userId, {}).length === 0;
+  const isNew     = getTasks(userId, {}).length === 0;
 
   if (isNew) {
-    await ctx.reply(
-      `👋 Привет, ${firstName}!\n\n` +
-      `Я — *Ordo*, твой личный ассистент задач.\n\n` +
-      `*Как это работает:*\n` +
-      `📥 Напиши или скажи задачу — запишу без лишних полей\n` +
-      `📅 Каждое утро пришлю план на день\n` +
-      `🔍 Каждый вечер разберём что зависло\n\n` +
-      `*Попробуй прямо сейчас* — напиши любую задачу или отправь голосовое:\n` +
-      `_"Купить молоко", "Позвонить маме завтра", "Записаться к врачу в четверг"_`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('⚙️ Настроить время напоминаний', 'onb_settings')],
-        ]),
-      }
-    );
+    await startOnboarding(ctx);
   } else {
     await ctx.reply(
       `С возвращением, ${firstName}! 👋\n\n` +
@@ -52,12 +38,9 @@ bot.start(async (ctx) => {
   }
 });
 
-// Онбординг — открыть настройки
-bot.action('onb_settings', async (ctx) => {
-  const userId = getUser(ctx);
-  await ctx.answerCbQuery();
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  await ctx.reply(buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
+// /onboarding — перезапустить онбординг (для тестирования и новых пользователей)
+bot.command('onboarding', async (ctx) => {
+  await startOnboarding(ctx);
 });
 
 bot.help((ctx) => {
@@ -92,6 +75,7 @@ bot.catch((err, ctx) => {
 
 // ─── Регистрация обработчиков ─────────────────────────────
 
+require('./handlers/onboarding').register(bot);
 require('./handlers/tasks').register(bot);
 require('./handlers/goals').register(bot);
 require('./handlers/subtasks').register(bot);

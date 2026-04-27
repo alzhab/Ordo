@@ -260,6 +260,50 @@ async function handleText(ctx, text) {
   const userId = getUser(ctx);
   const state  = pendingTasks.get(userId);
 
+  // Онбординг: ввод времени уведомлений
+  if (state?.onboarding?.step === 'waiting_time') {
+    const time = parseTimeInput(text);
+    if (!time) {
+      return ctx.reply('Не понял время. Попробуй: `9:00` или `8 утра`', { parse_mode: 'Markdown' });
+    }
+    delete state.onboarding;
+    pendingTasks.set(userId, state);
+    updateSettings(userId, { plan_time: time });
+    const { DONE_TEXT } = require('./onboarding');
+    return ctx.reply(DONE_TEXT(time), { parse_mode: 'Markdown' });
+  }
+
+  // Онбординг: первая задача пользователя
+  if (state?.onboarding?.step === 'waiting_task') {
+    delete state.onboarding;
+    pendingTasks.set(userId, state);
+    const tz = getSettings(userId).timezone;
+    const statusMsg = await ctx.reply('⏳ Сохраняю...');
+    let taskData;
+    try {
+      const categories = getCategoryNames(userId);
+      const goalNames  = getGoalsWithProgress(userId).map(g => g.title);
+      const p = await parseIntent(text, categories, goalNames, tz);
+      if (p.intent === 'create_task') {
+        taskData = p;
+      } else if (p.intent === 'create_tasks_batch' && p.tasks?.length) {
+        taskData = p.tasks[0];
+      }
+    } catch (e) { /* fall through */ }
+    if (!taskData) taskData = { title: text };
+    if (taskData.status === 'waiting') {
+      const norm = normalizeWaiting(taskData.waiting_reason, taskData.waiting_until);
+      taskData.waiting_reason = norm.waiting_reason;
+      taskData.waiting_until  = norm.waiting_until;
+    }
+    if (taskData.reminder_at) taskData.reminder_at = parserReminderToUtc(taskData.reminder_at, tz);
+    await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
+    const saved = saveTask(userId, taskData);
+    const { showOnboardingTimeStep } = require('./onboarding');
+    await showOnboardingTimeStep(ctx, saved.title);
+    return;
+  }
+
   // Добавление шага
   if (state?.addingStep) {
     const { taskId } = state.addingStep;
