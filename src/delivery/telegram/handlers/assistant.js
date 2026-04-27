@@ -306,33 +306,80 @@ async function renderReviewSummary(ctx, userId, reply = false) {
 
   const state = pendingTasks.get(userId) ?? {};
   state.reviewData = {
+    groups,
     taskIds: all.map(t => t.id),
     reasons: Object.fromEntries(all.map(t => [t.id, t.reason])),
   };
+  delete state.reviewList;
+  delete state.reviewSlider;
   pendingTasks.set(userId, state);
 
-  const MAX_PER_GROUP = 5;
   const lines = [`🔍 *Разбор задач* (${all.length})\n`];
-
-  for (const group of groups) {
-    lines.push(`${group.label} — *${group.tasks.length}*`);
-    const toShow = group.tasks.slice(0, MAX_PER_GROUP);
-    for (const t of toShow) {
-      lines.push(`• ${t.title}`);
-      lines.push(`  _${t.reason}_`);
-    }
-    if (group.tasks.length > MAX_PER_GROUP) {
-      lines.push(`  _...и ещё ${group.tasks.length - MAX_PER_GROUP}_`);
-    }
-    lines.push('');
+  for (const g of groups) {
+    lines.push(`${g.label}: ${g.tasks.length}`);
   }
 
-  const text = lines.join('\n').trim();
-  const opts = {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([[Markup.button.callback('▶️ Начать разбор', 'rv_start')]]),
-  };
+  const buttons = groups.map(g => [
+    Markup.button.callback(`${g.label} (${g.tasks.length})`, `rv_group_${g.key}`),
+  ]);
+  buttons.push([Markup.button.callback(`▶️ Разобрать всё (${all.length})`, 'rv_start')]);
+
+  const text = lines.join('\n');
+  const opts = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) };
   return reply ? ctx.reply(text, opts) : safeEdit(ctx, text, opts);
+}
+
+async function renderReviewList(ctx, userId) {
+  const state = pendingTasks.get(userId);
+  if (!state?.reviewData || !state?.reviewList) return;
+  const { groupKey, page } = state.reviewList;
+  const { groups, taskIds: allIds, reasons } = state.reviewData;
+
+  let tasks;
+  let header;
+  if (groupKey === 'all') {
+    tasks = allIds.map(id => getTaskById(id)).filter(Boolean);
+    header = `📋 *Все задачи (${tasks.length})*`;
+  } else {
+    const group = groups.find(g => g.key === groupKey);
+    if (!group) return;
+    tasks = group.tasks.map(t => getTaskById(t.id)).filter(Boolean);
+    header = `${group.label} — *${group.tasks.length}*`;
+  }
+
+  const total = tasks.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+  const p = Math.min(page, totalPages - 1);
+  state.reviewList.page = p;
+  state.reviewList.taskIds = tasks.map(t => t.id);
+  const pageItems = tasks.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
+  const offset = p * PAGE_SIZE;
+
+  const ICON = { waiting: '⏳', maybe: '💤', todo: '📋', overdue: '⏰' };
+  const taskRows = pageItems.map((task, i) => {
+    const icon  = ICON[task.status] ?? '📋';
+    const label = `${offset + i + 1}. ${icon} ${task.title}`.slice(0, 64);
+    return [Markup.button.callback(label, `rv_list_item_${task.id}`)];
+  });
+
+  const extraRows = [];
+  if (total > 0) {
+    extraRows.push([Markup.button.callback(`▶️ Разобрать (${total})`, 'rv_list_slider')]);
+  }
+  if (totalPages > 1) {
+    extraRows.push([
+      Markup.button.callback('◀️', p > 0 ? `rv_list_page_${p - 1}` : 'rv_noop'),
+      Markup.button.callback(`${p + 1} / ${totalPages}`, 'rv_noop'),
+      Markup.button.callback('▶️', p < totalPages - 1 ? `rv_list_page_${p + 1}` : 'rv_noop'),
+    ]);
+  }
+  extraRows.push([Markup.button.callback('◀️ К обзору', 'rv_list_back')]);
+
+  pendingTasks.set(userId, state);
+  await safeEdit(ctx, header, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([...taskRows, ...extraRows]),
+  });
 }
 
 async function renderReviewSlider(ctx, userId) {
@@ -363,7 +410,7 @@ async function renderReviewSlider(ctx, userId) {
   const counter = `_${index + 1} из ${taskIds.length}_`;
   const nav = [
     Markup.button.callback('◀️', index > 0 ? 'rv_prev' : 'rv_noop'),
-    Markup.button.callback('📋 К списку', 'rv_back'),
+    Markup.button.callback('📋 К обзору', 'rv_back'),
     Markup.button.callback('▶️', index < taskIds.length - 1 ? 'rv_next' : 'rv_noop'),
   ];
 
@@ -693,15 +740,16 @@ function register(bot) {
     }
   });
 
-  // Review — начать разбор (переход в слайдер)
+  // Review — начать разбор всех задач (слайдер)
   bot.action('rv_start', async (ctx) => {
     const userId = getUser(ctx);
     let state = pendingTasks.get(userId) ?? {};
     if (!state.reviewData) {
-      const tasks = getReviewData(userId);
+      const { groups, all } = getReviewData(userId);
       state.reviewData = {
-        taskIds: tasks.map(t => t.id),
-        reasons: Object.fromEntries(tasks.map(t => [t.id, t.reason])),
+        groups,
+        taskIds: all.map(t => t.id),
+        reasons: Object.fromEntries(all.map(t => [t.id, t.reason])),
       };
     }
     if (!state.reviewData.taskIds.length) return ctx.answerCbQuery('Задач нет');
@@ -723,10 +771,85 @@ function register(bot) {
     await handlePlanForDate(ctx, localNow(getSettings(userId).timezone));
   });
 
-  // Review — вернуться к сводке
+  // Review — назад из слайдера (к группе-списку или к обзору)
   bot.action('rv_back', async (ctx) => {
     const userId = getUser(ctx);
     const state  = pendingTasks.get(userId) ?? {};
+    delete state.reviewSlider;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    if (state.reviewList) {
+      await renderReviewList(ctx, userId);
+    } else {
+      await renderReviewSummary(ctx, userId);
+    }
+  });
+
+  // Review — открыть группу задач (список)
+  bot.action(/^rv_group_(\w+)$/, async (ctx) => {
+    const userId   = getUser(ctx);
+    const groupKey = ctx.match[1];
+    const state    = pendingTasks.get(userId) ?? {};
+    if (!state.reviewData) return ctx.answerCbQuery('Сессия устарела');
+    state.reviewList = { groupKey, page: 0 };
+    delete state.reviewSlider;
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewList(ctx, userId);
+  });
+
+  // Review list — пагинация
+  bot.action(/^rv_list_page_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.reviewList) return ctx.answerCbQuery();
+    state.reviewList.page = parseInt(ctx.match[1]);
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewList(ctx, userId);
+  });
+
+  // Review list — открыть задачу в слайдере
+  bot.action(/^rv_list_item_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const taskId = parseInt(ctx.match[1]);
+    const state  = pendingTasks.get(userId);
+    if (!state?.reviewList || !state?.reviewData) return ctx.answerCbQuery();
+    const taskIds = state.reviewList.taskIds ?? state.reviewData.taskIds;
+    const index   = taskIds.indexOf(taskId);
+    state.reviewSlider = {
+      taskIds,
+      reasons: state.reviewData.reasons,
+      index: Math.max(0, index),
+      stats: { scheduled: 0, deferred: 0, deleted: 0 },
+    };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewSlider(ctx, userId);
+  });
+
+  // Review list — открыть слайдер с начала текущей группы
+  bot.action('rv_list_slider', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId);
+    if (!state?.reviewList || !state?.reviewData) return ctx.answerCbQuery();
+    const taskIds = state.reviewList.taskIds ?? state.reviewData.taskIds;
+    state.reviewSlider = {
+      taskIds,
+      reasons: state.reviewData.reasons,
+      index: 0,
+      stats: { scheduled: 0, deferred: 0, deleted: 0 },
+    };
+    pendingTasks.set(userId, state);
+    await ctx.answerCbQuery();
+    await renderReviewSlider(ctx, userId);
+  });
+
+  // Review list — назад к обзору (summary)
+  bot.action('rv_list_back', async (ctx) => {
+    const userId = getUser(ctx);
+    const state  = pendingTasks.get(userId) ?? {};
+    delete state.reviewList;
     delete state.reviewSlider;
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
