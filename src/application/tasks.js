@@ -182,12 +182,34 @@ const {
   getTasksByGoal,
   getTasksByPlan,
   getUnsyncedTasks,
+  getUnsyncedCalendarTasks,
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,
   snoozeTask,
   cleanupDoneTasks,
 } = taskRepo;
+
+// Синхронизирует все задачи с датой без gcal_event_id в Google Calendar.
+// Возвращает { synced, failed, skipped } для отображения результата пользователю.
+async function syncAllToCalendar(userId) {
+  const tasks = getUnsyncedCalendarTasks(userId);
+  const { timezone } = getSettings(userId);
+  let synced = 0, failed = 0;
+  for (const task of tasks) {
+    try {
+      const eventId = await gcal.createEvent(userId, task, timezone);
+      if (eventId) {
+        taskRepo.updateTask(task.id, { gcal_event_id: eventId });
+        synced++;
+      }
+    } catch (e) {
+      logSyncError(userId, `Calendar bulk "${task.title}": ${e.message}`);
+      failed++;
+    }
+  }
+  return { synced, failed, total: tasks.length };
+}
 
 module.exports = {
   isNotionEnabled,
@@ -201,6 +223,8 @@ module.exports = {
   updateTask,
   deleteTask,
   getUnsyncedTasks,
+  getUnsyncedCalendarTasks,
+  syncAllToCalendar,
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,

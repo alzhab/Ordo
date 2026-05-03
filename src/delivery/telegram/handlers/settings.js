@@ -6,6 +6,7 @@ const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../
 const gcal = require('../../../infrastructure/integrations/googleCalendar');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
 const { getSettings, getNotionEnabled, updateSettings } = require('../../../application/settings');
+const { syncAllToCalendar, getUnsyncedCalendarTasks } = require('../../../application/tasks');
 
 function buildSettingsText(userId) {
   const s   = getSettings(userId);
@@ -72,6 +73,10 @@ function buildGCalKeyboard(userId) {
   const connected = gcal.isConnected(userId);
   const rows = [];
   if (connected) {
+    const unsynced = getUnsyncedCalendarTasks(userId).length;
+    if (unsynced > 0) {
+      rows.push([Markup.button.callback(`🔄 Синхронизировать задачи (${unsynced})`, 'gcal_sync_all')]);
+    }
     rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
   } else {
     const authUrl = gcal.generateAuthUrl(userId);
@@ -135,6 +140,28 @@ function register(bot) {
     gcal.disconnect(userId);
     await ctx.answerCbQuery('🔌 Google Calendar отключён');
     await safeEdit(ctx, buildGCalText(userId), { parse_mode: 'Markdown', ...buildGCalKeyboard(userId) });
+  });
+
+  bot.action('gcal_sync_all', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery('🔄 Синхронизирую...');
+    await safeEdit(ctx, '⏳ _Синхронизирую задачи с Google Calendar..._', { parse_mode: 'Markdown' });
+    try {
+      const { synced, failed, total } = await syncAllToCalendar(userId);
+      const lines = [`✅ Синхронизация завершена`];
+      if (synced)  lines.push(`Добавлено в Calendar: *${synced}*`);
+      if (failed)  lines.push(`Ошибок: *${failed}*`);
+      if (total === 0) lines.push('_Все задачи уже синхронизированы_');
+      await safeEdit(ctx, lines.join('\n'), {
+        parse_mode: 'Markdown',
+        ...buildGCalKeyboard(userId),
+      });
+    } catch (e) {
+      console.error('[gcal] sync_all error:', e.message);
+      await safeEdit(ctx, '⚠️ Ошибка синхронизации. Попробуй позже.', {
+        ...buildGCalKeyboard(userId),
+      });
+    }
   });
 
   // Интеграции (Notion)

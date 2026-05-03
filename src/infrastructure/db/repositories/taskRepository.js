@@ -201,6 +201,20 @@ function getUnsyncedTasks(userId) {
   `).all(userId);
 }
 
+// Задачи с planned_for без gcal_event_id — кандидаты для синхронизации с Google Calendar
+function getUnsyncedCalendarTasks(userId) {
+  return db.prepare(`
+    SELECT t.*, c.name AS category_name
+    FROM tasks t
+    LEFT JOIN categories c ON c.id = t.category_id
+    WHERE t.user_id = ?
+      AND t.planned_for IS NOT NULL
+      AND t.status NOT IN ('done', 'deleted')
+      AND (t.gcal_event_id IS NULL OR t.gcal_event_id = '')
+    ORDER BY t.planned_for ASC
+  `).all(userId);
+}
+
 // Задачи с истёкшим reminder_at которые ещё не были отправлены.
 // Вызывается из scheduler каждую минуту.
 function getDueReminders() {
@@ -258,6 +272,7 @@ module.exports = {
   updateTask,
   deleteTask,
   getUnsyncedTasks,
+  getUnsyncedCalendarTasks,
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,
