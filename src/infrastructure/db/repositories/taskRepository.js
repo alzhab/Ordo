@@ -215,6 +215,29 @@ function getUnsyncedCalendarTasks(userId) {
   `).all(userId);
 }
 
+// Задачи уже синхронизированные с Google Calendar, фильтр по типу:
+//   'recurring' — повторяющиеся
+//   'timed'     — с конкретным временем (reminder_at)
+//   'all_day'   — на весь день
+function getSyncedCalendarTasksByType(userId, type) {
+  const base = `
+    SELECT t.*, c.name AS category_name
+    FROM tasks t
+    LEFT JOIN categories c ON c.id = t.category_id
+    WHERE t.user_id = ?
+      AND t.gcal_event_id IS NOT NULL AND t.gcal_event_id != ''
+      AND t.status NOT IN ('done', 'deleted')
+  `;
+  if (type === 'recurring') {
+    return db.prepare(base + `AND t.is_recurring = 1`).all(userId);
+  }
+  if (type === 'timed') {
+    return db.prepare(base + `AND t.is_recurring = 0 AND t.reminder_at IS NOT NULL`).all(userId);
+  }
+  // all_day
+  return db.prepare(base + `AND t.is_recurring = 0 AND t.reminder_at IS NULL`).all(userId);
+}
+
 // Задачи с истёкшим reminder_at которые ещё не были отправлены.
 // Вызывается из scheduler каждую минуту.
 function getDueReminders() {
@@ -273,6 +296,7 @@ module.exports = {
   deleteTask,
   getUnsyncedTasks,
   getUnsyncedCalendarTasks,
+  getSyncedCalendarTasksByType,
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,

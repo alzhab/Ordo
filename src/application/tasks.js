@@ -185,12 +185,23 @@ const {
   getTasksByPlan,
   getUnsyncedTasks,
   getUnsyncedCalendarTasks,
+  getSyncedCalendarTasksByType,
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,
   snoozeTask,
   cleanupDoneTasks,
 } = taskRepo;
+
+// Обновляет цвет уже синхронизированных событий одного типа в Google Calendar.
+// Вызывается fire-and-forget при изменении цвета в настройках.
+async function syncColorForType(userId, type, colors) {
+  const tasks = getSyncedCalendarTasksByType(userId, type);
+  const { timezone } = getSettings(userId);
+  for (const task of tasks) {
+    await gcal.updateEvent(userId, task.gcal_event_id, task, timezone, colors).catch(() => {});
+  }
+}
 
 // Синхронизирует все задачи с датой без gcal_event_id в Google Calendar.
 // Возвращает { synced, failed, skipped } для отображения результата пользователю.
@@ -228,6 +239,7 @@ module.exports = {
   getUnsyncedTasks,
   getUnsyncedCalendarTasks,
   syncAllToCalendar,
+  syncColorForType,
   getDueReminders,
   getRecurringDueNow,
   advanceRecurring,

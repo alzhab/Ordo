@@ -6,7 +6,7 @@ const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../
 const gcal = require('../../../infrastructure/integrations/googleCalendar');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
 const { getSettings, getNotionEnabled, updateSettings, getGcalColors, updateGcalColors } = require('../../../application/settings');
-const { syncAllToCalendar, getUnsyncedCalendarTasks } = require('../../../application/tasks');
+const { syncAllToCalendar, getUnsyncedCalendarTasks, syncColorForType } = require('../../../application/tasks');
 
 function buildSettingsText(userId) {
   const s   = getSettings(userId);
@@ -227,6 +227,8 @@ function register(bot) {
     updateGcalColors(userId, colors);
     const colorName = colorId === 0 ? 'По умолчанию' : (GCAL_COLORS[colorId]?.name ?? '');
     await ctx.answerCbQuery(`✅ ${colorName}`);
+    // Обновляем цвет уже синхронизированных событий этого типа
+    syncColorForType(userId, type, colors).catch(() => {});
     // Возвращаемся к списку типов
     const updatedColors = getGcalColors(userId);
     const rows = Object.entries(GCAL_TASK_TYPES).map(([t, { label }]) => [
