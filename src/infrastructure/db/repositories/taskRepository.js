@@ -161,7 +161,7 @@ function updateTask(id, fields) {
   }
   if (fields.planned_for) fields = { ...fields, planned_for: String(fields.planned_for).slice(0, 10) };
   if (fields.waiting_until) fields = { ...fields, waiting_until: String(fields.waiting_until).slice(0, 10) };
-  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent', 'is_recurring', 'recur_days', 'recur_day_of_month', 'recur_time', 'recur_remind_before', 'gcal_event_id'];
+  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent', 'is_recurring', 'recur_days', 'recur_day_of_month', 'recur_time', 'recur_remind_before', 'gcal_event_id', 'apple_cal_event_id'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 
@@ -199,6 +199,16 @@ function getUnsyncedTasks(userId) {
     LEFT JOIN goals g ON g.id = t.goal_id
     WHERE t.user_id = ? AND t.status != 'deleted' AND (t.notion_page_id IS NULL OR t.notion_page_id = '')
   `).all(userId);
+}
+
+// Задачи с planned_for без apple_cal_event_id — кандидаты для синхронизации с iCloud Calendar
+function getUnsyncedAppleCalTasks(userId) {
+  return db.prepare(`SELECT t.*, c.name AS category_name
+    FROM tasks t LEFT JOIN categories c ON c.id = t.category_id
+    WHERE t.user_id = ? AND t.planned_for IS NOT NULL
+      AND t.status NOT IN ('done','deleted')
+      AND (t.apple_cal_event_id IS NULL OR t.apple_cal_event_id = '')
+    ORDER BY t.planned_for ASC`).all(userId);
 }
 
 // Задачи с planned_for без gcal_event_id — кандидаты для синхронизации с Google Calendar
@@ -296,6 +306,7 @@ module.exports = {
   deleteTask,
   getUnsyncedTasks,
   getUnsyncedCalendarTasks,
+  getUnsyncedAppleCalTasks,
   getSyncedCalendarTasksByType,
   getDueReminders,
   getRecurringDueNow,
