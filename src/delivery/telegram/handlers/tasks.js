@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc } = require('../../../shared/helpers');
+const { getUser, safeEdit, safeDelete, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal } = require('../../../shared/helpers');
 const { pendingTasks, taskFilters, getFilter, taskPlanContext, taskSliders, acquireProcessing, releaseProcessing } = require('../../../shared/state');
 const { formatTaskDetail, formatPreview } = require('../formatters');
 const {
@@ -480,7 +480,9 @@ function register(bot) {
     pendingTasks.set(userId, state);
     await ctx.answerCbQuery();
     const current = task.reminder_at;
-    const currentLine = current ? `\nТекущее: \`${current.slice(0, 16)}\`` : '';
+    const tz = getUserTz(userId);
+    const currentDisplay = current ? (utcToLocal(current, tz) ?? current).slice(0, 16) : null;
+    const currentLine = currentDisplay ? `\nТекущее: \`${currentDisplay}\`` : '';
     await safeEdit(ctx, `🔔 *Напоминание*${currentLine}\n\nКогда напомнить? Примеры:\n"завтра в 10:00", "29 марта 14:30", "через 2 часа"`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
