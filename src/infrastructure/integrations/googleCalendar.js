@@ -138,13 +138,24 @@ function disconnect(userId) {
 function taskToEvent(task) {
   const event = { summary: task.title };
   if (task.description) event.description = task.description;
-  if (task.planned_for) {
+
+  if (task.reminder_at && task.planned_for) {
+    // Timed event: используем reminder_at как время начала (хранится в UTC)
+    const start = new Date(task.reminder_at);
+    const end   = new Date(start.getTime() + 60 * 60 * 1000); // длительность 1 час
+    event.start = { dateTime: start.toISOString() };
+    event.end   = { dateTime: end.toISOString() };
+  } else if (task.planned_for) {
     // All-day event: end date = next day (Google Calendar convention)
     const nextDay = new Date(task.planned_for + 'T00:00:00Z');
     nextDay.setDate(nextDay.getDate() + 1);
     event.start = { date: task.planned_for };
     event.end   = { date: nextDay.toISOString().split('T')[0] };
   }
+
+  // Отключаем стандартные напоминания Google (уведомление "за 1 день в 23:30")
+  event.reminders = { useDefault: false, overrides: [] };
+
   return event;
 }
 
