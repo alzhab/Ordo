@@ -57,6 +57,11 @@ function buildGCalText(userId) {
     if (email) text += ` (${email})`;
     text += `\n\nЗадачи с датой автоматически синхронизируются с твоим Google Calendar.`;
     text += `\nСобытия из календаря отображаются в /plan.`;
+    const errors = getSyncErrors(userId).filter(e => e.message.includes('Calendar'));
+    if (errors.length) {
+      text += `\n\n⚠️ *Последние ошибки:*\n`;
+      text += errors.slice(0, 3).map(e => `• \`${e.created_at.slice(5, 16)}\` ${e.message}`).join('\n');
+    }
   } else {
     text += `❌ Не подключён\n\nПодключи Google Calendar — задачи с датой будут автоматически появляться в твоём календаре, а события из календаря — в /plan.`;
   }
