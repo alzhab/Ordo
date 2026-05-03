@@ -5,7 +5,7 @@ const { getCategories, createCategory, getCategoryTaskCount, deleteCategory } = 
 const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const gcal = require('../../../infrastructure/integrations/googleCalendar');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
-const { getSettings, getNotionEnabled, updateSettings } = require('../../../application/settings');
+const { getSettings, getNotionEnabled, updateSettings, getGcalColors, updateGcalColors } = require('../../../application/settings');
 const { syncAllToCalendar, getUnsyncedCalendarTasks } = require('../../../application/tasks');
 
 function buildSettingsText(userId) {
@@ -49,6 +49,33 @@ function buildSettingsKeyboard(userId) {
   return Markup.inlineKeyboard(rows);
 }
 
+// Палитра Google Calendar: colorId → { emoji, name }
+const GCAL_COLORS = {
+  1:  { emoji: '💜', name: 'Лаванда'   },
+  2:  { emoji: '🌿', name: 'Шалфей'    },
+  3:  { emoji: '🍇', name: 'Виноград'  },
+  4:  { emoji: '🌸', name: 'Фламинго'  },
+  5:  { emoji: '🍌', name: 'Банан'     },
+  6:  { emoji: '🍊', name: 'Мандарин'  },
+  7:  { emoji: '🦚', name: 'Павлин'    },
+  8:  { emoji: '🫐', name: 'Черника'   },
+  9:  { emoji: '🌱', name: 'Базилик'   },
+  10: { emoji: '🍅', name: 'Томат'     },
+  11: { emoji: '🩷', name: 'Розовый'   },
+};
+
+const GCAL_TASK_TYPES = {
+  all_day:   { label: '📅 Весь день'        },
+  timed:     { label: '⏰ С временем'        },
+  recurring: { label: '🔄 Повторяющиеся'    },
+};
+
+function colorLabel(colorId) {
+  if (!colorId) return '⬜ По умолчанию';
+  const c = GCAL_COLORS[colorId];
+  return c ? `${c.emoji} ${c.name}` : '⬜ По умолчанию';
+}
+
 function buildGCalText(userId) {
   const connected = gcal.isConnected(userId);
   const email     = gcal.getConnectedEmail(userId);
@@ -58,9 +85,14 @@ function buildGCalText(userId) {
     if (email) text += ` (${email})`;
     text += `\n\nЗадачи с датой автоматически синхронизируются с твоим Google Calendar.`;
     text += `\nСобытия из календаря отображаются в /plan.`;
+    const colors = getGcalColors(userId);
+    text += `\n\n🎨 *Цвета событий:*\n`;
+    for (const [type, { label }] of Object.entries(GCAL_TASK_TYPES)) {
+      text += `${label}: ${colorLabel(colors[type])}\n`;
+    }
     const errors = getSyncErrors(userId).filter(e => e.message.includes('Calendar'));
     if (errors.length) {
-      text += `\n\n⚠️ *Последние ошибки:*\n`;
+      text += `\n⚠️ *Последние ошибки:*\n`;
       text += errors.slice(0, 3).map(e => `• \`${e.created_at.slice(5, 16)}\` ${e.message}`).join('\n');
     }
   } else {
@@ -77,6 +109,7 @@ function buildGCalKeyboard(userId) {
     if (unsynced > 0) {
       rows.push([Markup.button.callback(`🔄 Синхронизировать задачи (${unsynced})`, 'gcal_sync_all')]);
     }
+    rows.push([Markup.button.callback('🎨 Настроить цвета', 'gcal_colors')]);
     rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
   } else {
     const authUrl = gcal.generateAuthUrl(userId);
@@ -140,6 +173,70 @@ function register(bot) {
     gcal.disconnect(userId);
     await ctx.answerCbQuery('🔌 Google Calendar отключён');
     await safeEdit(ctx, buildGCalText(userId), { parse_mode: 'Markdown', ...buildGCalKeyboard(userId) });
+  });
+
+  // Экран выбора типа задачи для настройки цвета
+  bot.action('gcal_colors', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const colors = getGcalColors(userId);
+    const rows = Object.entries(GCAL_TASK_TYPES).map(([type, { label }]) => [
+      Markup.button.callback(`${label} — ${colorLabel(colors[type])}`, `gcal_color_type_${type}`),
+    ]);
+    rows.push([Markup.button.callback('◀️ Назад', 'settings_gcal')]);
+    await safeEdit(ctx, '🎨 *Цвета событий*\n\nВыбери тип задачи:', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(rows),
+    });
+  });
+
+  // Палитра цветов для конкретного типа
+  bot.action(/^gcal_color_type_(all_day|timed|recurring)$/, async (ctx) => {
+    const type   = ctx.match[1];
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const { label } = GCAL_TASK_TYPES[type];
+
+    const colorEntries = Object.entries(GCAL_COLORS);
+    const rows = [];
+    for (let i = 0; i < colorEntries.length; i += 3) {
+      rows.push(colorEntries.slice(i, i + 3).map(([id, { emoji, name }]) =>
+        Markup.button.callback(`${emoji} ${name}`, `gcal_color_set_${type}_${id}`)
+      ));
+    }
+    rows.push([Markup.button.callback('⬜ По умолчанию', `gcal_color_set_${type}_0`)]);
+    rows.push([Markup.button.callback('◀️ Назад', 'gcal_colors')]);
+
+    await safeEdit(ctx, `🎨 *Цвет для "${label}"*\n\nВыбери цвет:`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(rows),
+    });
+  });
+
+  // Сохранение выбранного цвета
+  bot.action(/^gcal_color_set_(all_day|timed|recurring)_(\d+)$/, async (ctx) => {
+    const type    = ctx.match[1];
+    const colorId = parseInt(ctx.match[2]);
+    const userId  = getUser(ctx);
+    const colors  = getGcalColors(userId);
+    if (colorId === 0) {
+      delete colors[type];
+    } else {
+      colors[type] = colorId;
+    }
+    updateGcalColors(userId, colors);
+    const colorName = colorId === 0 ? 'По умолчанию' : (GCAL_COLORS[colorId]?.name ?? '');
+    await ctx.answerCbQuery(`✅ ${colorName}`);
+    // Возвращаемся к списку типов
+    const updatedColors = getGcalColors(userId);
+    const rows = Object.entries(GCAL_TASK_TYPES).map(([t, { label }]) => [
+      Markup.button.callback(`${label} — ${colorLabel(updatedColors[t])}`, `gcal_color_type_${t}`),
+    ]);
+    rows.push([Markup.button.callback('◀️ Назад', 'settings_gcal')]);
+    await safeEdit(ctx, '🎨 *Цвета событий*\n\nВыбери тип задачи:', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(rows),
+    });
   });
 
   bot.action('gcal_sync_all', async (ctx) => {

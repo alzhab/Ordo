@@ -5,7 +5,7 @@ const subtaskRepo = require('../infrastructure/db/repositories/subtaskRepository
 const notion = require('../infrastructure/integrations/notion');
 const gcal  = require('../infrastructure/integrations/googleCalendar');
 const { logSyncError } = require('./notifications');
-const { getNotionEnabled, getSettings } = require('./settings');
+const { getNotionEnabled, getSettings, getGcalColors } = require('./settings');
 
 // Экспортируется для handlers — нужен для UI (показать кнопку "привязать к Notion")
 function isNotionEnabled(userId) {
@@ -63,7 +63,8 @@ function saveTask(userId, parsed) {
 
   if (saved.planned_for && gcal.isConnected(userId)) {
     const { timezone } = getSettings(userId);
-    gcal.createEvent(userId, saved, timezone)
+    const colors = getGcalColors(userId);
+    gcal.createEvent(userId, saved, timezone, colors)
       .then(eventId => { if (eventId) taskRepo.updateTask(saved.id, { gcal_event_id: eventId }); })
       .catch(e => logSyncError(userId, `Calendar "${saved.title}": ${e.message}`));
   }
@@ -109,6 +110,7 @@ function updateTask(id, fields, userId = null) {
     const gcalEventId      = before?.gcal_event_id ?? null;
 
     const { timezone } = getSettings(userId);
+    const colors = getGcalColors(userId);
 
     if (isTerminal && gcalEventId) {
       // Задача завершена/удалена — удаляем событие или серию из календаря
@@ -124,17 +126,17 @@ function updateTask(id, fields, userId = null) {
         // поэтому при автосдвиге через advanceRecurring не обновляем серию.
         // Для обычных задач: обновляем событие если дата изменена вручную.
         if (!updated.is_recurring) {
-          gcal.updateEvent(userId, gcalEventId, updated, timezone).catch(() => {});
+          gcal.updateEvent(userId, gcalEventId, updated, timezone, colors).catch(() => {});
         }
       } else if (fields.planned_for && !gcalEventId) {
         // Дата добавлена впервые — создаём событие или серию
-        gcal.createEvent(userId, updated, timezone)
+        gcal.createEvent(userId, updated, timezone, colors)
           .then(eid => { if (eid) taskRepo.updateTask(id, { gcal_event_id: eid }); })
           .catch(e => logSyncError(userId, `Calendar "${updated.title}": ${e.message}`));
       }
     } else if (contentChanged && gcalEventId) {
       // Название или описание изменились — обновляем событие/серию
-      gcal.updateEvent(userId, gcalEventId, updated, timezone).catch(() => {});
+      gcal.updateEvent(userId, gcalEventId, updated, timezone, colors).catch(() => {});
     }
   }
 
@@ -195,10 +197,11 @@ const {
 async function syncAllToCalendar(userId) {
   const tasks = getUnsyncedCalendarTasks(userId);
   const { timezone } = getSettings(userId);
+  const colors = getGcalColors(userId);
   let synced = 0, failed = 0;
   for (const task of tasks) {
     try {
-      const eventId = await gcal.createEvent(userId, task, timezone);
+      const eventId = await gcal.createEvent(userId, task, timezone, colors);
       if (eventId) {
         taskRepo.updateTask(task.id, { gcal_event_id: eventId });
         synced++;

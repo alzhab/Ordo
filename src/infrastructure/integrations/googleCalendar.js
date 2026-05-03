@@ -156,9 +156,18 @@ function buildRRule(task) {
   return `RRULE:FREQ=WEEKLY;BYDAY=${days.map(d => BYDAY[d]).join(',')}`;
 }
 
+// Определяет тип задачи для выбора цвета:
+// 'recurring' — повторяющаяся, 'timed' — с конкретным временем, 'all_day' — на весь день
+function getTaskType(task) {
+  if (task.is_recurring) return 'recurring';
+  if (task.reminder_at && task.planned_for) return 'timed';
+  return 'all_day';
+}
+
 // Строит объект события для Google Calendar API.
 // timezone — IANA-строка часового пояса пользователя (для повторяющихся задач).
-function taskToEvent(task, timezone = 'UTC') {
+// colors — объект { all_day, timed, recurring } с Google Calendar colorId (1-11).
+function taskToEvent(task, timezone = 'UTC', colors = {}) {
   const event = { summary: task.title };
   if (task.description) event.description = task.description;
   event.reminders = { useDefault: false, overrides: [] };
@@ -183,10 +192,13 @@ function taskToEvent(task, timezone = 'UTC') {
     event.end   = { date: nextDay.toISOString().split('T')[0] };
   }
 
+  const colorId = colors[getTaskType(task)];
+  if (colorId) event.colorId = String(colorId);
+
   return event;
 }
 
-async function createEvent(userId, task, timezone = 'UTC') {
+async function createEvent(userId, task, timezone = 'UTC', colors = {}) {
   if (!task.planned_for) return null;
   const token = await getAccessToken(userId);
   if (!token) return null;
@@ -194,7 +206,7 @@ async function createEvent(userId, task, timezone = 'UTC') {
   const res = await fetch(`${CAL_API}/calendars/primary/events`, {
     method:  'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify(taskToEvent(task, timezone)),
+    body:    JSON.stringify(taskToEvent(task, timezone, colors)),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -204,7 +216,7 @@ async function createEvent(userId, task, timezone = 'UTC') {
   return event.id;
 }
 
-async function updateEvent(userId, gcalEventId, task, timezone = 'UTC') {
+async function updateEvent(userId, gcalEventId, task, timezone = 'UTC', colors = {}) {
   if (!gcalEventId) return;
   const token = await getAccessToken(userId);
   if (!token) return;
@@ -212,7 +224,7 @@ async function updateEvent(userId, gcalEventId, task, timezone = 'UTC') {
   await fetch(`${CAL_API}/calendars/primary/events/${gcalEventId}`, {
     method:  'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify(taskToEvent(task, timezone)),
+    body:    JSON.stringify(taskToEvent(task, timezone, colors)),
   });
 }
 

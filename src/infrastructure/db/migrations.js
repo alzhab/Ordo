@@ -257,3 +257,4 @@ db.exec(`
   );
 `);
 try { db.exec(`ALTER TABLE tasks ADD COLUMN gcal_event_id TEXT`); } catch {}
+try { db.exec(`ALTER TABLE user_settings ADD COLUMN gcal_colors TEXT`); } catch {}

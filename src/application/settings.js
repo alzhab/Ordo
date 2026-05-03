@@ -1,6 +1,6 @@
 const db = require('../infrastructure/db/connection');
 
-const ALLOWED_FIELDS = ['plan_time', 'review_time', 'timezone', 'plan_enabled', 'review_enabled', 'quiet_until', 'notion_enabled'];
+const ALLOWED_FIELDS = ['plan_time', 'review_time', 'timezone', 'plan_enabled', 'review_enabled', 'quiet_until', 'notion_enabled', 'gcal_colors'];
 
 function getSettings(userId) {
   let row = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(userId);
@@ -29,4 +29,13 @@ function isQuietMode(userId) {
   return quiet_until ? new Date(quiet_until) > new Date() : false;
 }
 
-module.exports = { getSettings, updateSettings, getNotionEnabled, isQuietMode };
+function getGcalColors(userId) {
+  const { gcal_colors } = getSettings(userId);
+  try { return JSON.parse(gcal_colors ?? '{}'); } catch { return {}; }
+}
+
+function updateGcalColors(userId, colors) {
+  updateSettings(userId, { gcal_colors: JSON.stringify(colors) });
+}
+
+module.exports = { getSettings, updateSettings, getNotionEnabled, isQuietMode, getGcalColors, updateGcalColors };
