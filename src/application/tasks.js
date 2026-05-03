@@ -3,6 +3,7 @@ const { getCategoryByName, createCategory } = require('../infrastructure/db/repo
 const { getGoalByTitle } = require('../infrastructure/db/repositories/goalRepository');
 const subtaskRepo = require('../infrastructure/db/repositories/subtaskRepository');
 const notion = require('../infrastructure/integrations/notion');
+const gcal  = require('../infrastructure/integrations/googleCalendar');
 const { logSyncError } = require('./notifications');
 const { getNotionEnabled } = require('./settings');
 
@@ -60,6 +61,12 @@ function saveTask(userId, parsed) {
       .catch(e => logSyncError(userId, `Создание "${saved.title}": ${e.message}`));
   }
 
+  if (saved.planned_for && gcal.isConnected(userId)) {
+    gcal.createEvent(userId, saved)
+      .then(eventId => { if (eventId) taskRepo.updateTask(saved.id, { gcal_event_id: eventId }); })
+      .catch(e => logSyncError(userId, `Calendar "${saved.title}": ${e.message}`));
+  }
+
   return saved;
 }
 
@@ -73,37 +80,69 @@ const NO_SYNC_FIELDS = new Set(['notion_page_id', 'reminder_sent', 'reminder_at'
 //   status изменился → updateTaskStatus
 //   другие поля изменились ИЛИ status стал 'waiting' → updateTaskFields
 function updateTask(id, fields, userId = null) {
+  const before  = userId ? taskRepo.getTaskById(id) : null;
   const updated = taskRepo.updateTask(id, fields);
 
-  if (!userId || !isNotionEnabled(userId) || !updated.notion_page_id) return updated;
-
-  const syncable = Object.keys(fields).filter(k => !NO_SYNC_FIELDS.has(k));
-  if (syncable.length === 0) return updated;
-
-  const hasStatus = 'status' in fields;
-  const hasOtherFields = syncable.some(k => k !== 'status');
-  const isWaiting = fields.status === 'waiting';
-
-  if (hasStatus) {
-    notion.updateTaskStatus(updated.notion_page_id, updated.status)
-      .catch(e => logSyncError(userId, `Статус "${updated.title}": ${e.message}`));
+  // ─── Notion sync ─────────────────────────────────────────────
+  if (userId && isNotionEnabled(userId) && updated.notion_page_id) {
+    const syncable = Object.keys(fields).filter(k => !NO_SYNC_FIELDS.has(k));
+    if (syncable.length > 0) {
+      const hasStatus     = 'status' in fields;
+      const hasOtherFields = syncable.some(k => k !== 'status');
+      const isWaiting     = fields.status === 'waiting';
+      if (hasStatus) {
+        notion.updateTaskStatus(updated.notion_page_id, updated.status)
+          .catch(e => logSyncError(userId, `Статус "${updated.title}": ${e.message}`));
+      }
+      if (hasOtherFields || isWaiting) {
+        notion.updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+      }
+    }
   }
 
-  // Синкаем поля если изменились не-статусные поля, или статус стал waiting
-  // (нужно передать waiting_reason/waiting_until в Notion)
-  if (hasOtherFields || isWaiting) {
-    notion.updateTaskFields(updated.notion_page_id, updated).catch(() => {});
+  // ─── Google Calendar sync ─────────────────────────────────────
+  if (userId && gcal.isConnected(userId)) {
+    const isTerminal       = ['done', 'deleted'].includes(fields.status);
+    const plannedChanged   = 'planned_for' in fields;
+    const contentChanged   = 'title' in fields || 'description' in fields;
+    const gcalEventId      = before?.gcal_event_id ?? null;
+
+    if (isTerminal && gcalEventId) {
+      // Задача завершена — удаляем событие из календаря
+      gcal.deleteEvent(userId, gcalEventId).catch(() => {});
+      taskRepo.updateTask(id, { gcal_event_id: null });
+    } else if (plannedChanged) {
+      if (!fields.planned_for && gcalEventId) {
+        // Дата снята — удаляем событие
+        gcal.deleteEvent(userId, gcalEventId).catch(() => {});
+        taskRepo.updateTask(id, { gcal_event_id: null });
+      } else if (fields.planned_for && gcalEventId) {
+        // Дата изменилась — обновляем событие
+        gcal.updateEvent(userId, gcalEventId, updated).catch(() => {});
+      } else if (fields.planned_for && !gcalEventId) {
+        // Дата добавлена — создаём событие
+        gcal.createEvent(userId, updated)
+          .then(eid => { if (eid) taskRepo.updateTask(id, { gcal_event_id: eid }); })
+          .catch(e => logSyncError(userId, `Calendar "${updated.title}": ${e.message}`));
+      }
+    } else if (contentChanged && gcalEventId) {
+      // Название или описание изменились — обновляем событие
+      gcal.updateEvent(userId, gcalEventId, updated).catch(() => {});
+    }
   }
 
   return updated;
 }
 
-// Soft delete + архивирует страницу в Notion
+// Soft delete + архивирует страницу в Notion + удаляет событие из Google Calendar
 function deleteTask(id, userId = null) {
-  const task = taskRepo.getTaskById(id);
+  const task    = taskRepo.getTaskById(id);
   const deleted = taskRepo.updateTask(id, { status: 'deleted' });
   if (userId && isNotionEnabled(userId) && task?.notion_page_id) {
     notion.updateTaskStatus(task.notion_page_id, 'deleted').catch(() => {});
+  }
+  if (userId && task?.gcal_event_id && gcal.isConnected(userId)) {
+    gcal.deleteEvent(userId, task.gcal_event_id).catch(() => {});
   }
   return deleted;
 }

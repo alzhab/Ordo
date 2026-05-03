@@ -161,7 +161,7 @@ function updateTask(id, fields) {
   }
   if (fields.planned_for) fields = { ...fields, planned_for: String(fields.planned_for).slice(0, 10) };
   if (fields.waiting_until) fields = { ...fields, waiting_until: String(fields.waiting_until).slice(0, 10) };
-  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent', 'is_recurring', 'recur_days', 'recur_day_of_month', 'recur_time', 'recur_remind_before'];
+  const allowed = ['title', 'description', 'status', 'category_id', 'goal_id', 'planned_for', 'notion_page_id', 'waiting_reason', 'waiting_until', 'reminder_at', 'reminder_sent', 'is_recurring', 'recur_days', 'recur_day_of_month', 'recur_time', 'recur_remind_before', 'gcal_event_id'];
   const allowedKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (allowedKeys.length === 0) return getTaskById(id);
 

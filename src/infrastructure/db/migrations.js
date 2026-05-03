@@ -238,3 +238,22 @@ try { db.exec(`ALTER TABLE user_settings RENAME COLUMN evening_time    TO review
 
 // Переименование типа 'morning' → 'plan' в логе уведомлений
 try { db.prepare(`UPDATE notification_log SET type = 'plan' WHERE type = 'morning'`).run(); } catch {}
+
+// ─── Google Calendar интеграция ───────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id),
+    provider      TEXT    NOT NULL,
+    access_token  TEXT,
+    refresh_token TEXT,
+    token_type    TEXT,
+    expiry_date   INTEGER,
+    scope         TEXT,
+    email         TEXT,
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, provider)
+  );
+`);
+try { db.exec(`ALTER TABLE tasks ADD COLUMN gcal_event_id TEXT`); } catch {}

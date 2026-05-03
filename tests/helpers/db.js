@@ -49,6 +49,7 @@ function createTestDb() {
       recur_day_of_month  INTEGER,
       recur_time          TEXT,
       recur_remind_before INTEGER NOT NULL DEFAULT 0,
+      gcal_event_id       TEXT,
       created_at          TEXT DEFAULT (datetime('now')),
       updated_at          TEXT DEFAULT (datetime('now'))
     );
@@ -84,6 +85,21 @@ function createTestDb() {
       task_id   INTEGER REFERENCES tasks(id),
       sent_at   TEXT    DEFAULT (datetime('now')),
       reacted   INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_tokens (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id       INTEGER NOT NULL REFERENCES users(id),
+      provider      TEXT    NOT NULL,
+      access_token  TEXT,
+      refresh_token TEXT,
+      token_type    TEXT,
+      expiry_date   INTEGER,
+      scope         TEXT,
+      email         TEXT,
+      created_at    TEXT DEFAULT (datetime('now')),
+      updated_at    TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, provider)
     );
 
   `);

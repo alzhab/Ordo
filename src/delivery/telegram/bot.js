@@ -121,3 +121,5 @@ bot.telegram.setMyCommands([
 
 process.once('SIGINT',  () => { scheduler.stop(schedulerTask); bot.stop('SIGINT'); });
 process.once('SIGTERM', () => { scheduler.stop(schedulerTask); bot.stop('SIGTERM'); });
+
+module.exports = bot;

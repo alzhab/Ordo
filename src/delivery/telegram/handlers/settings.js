@@ -3,6 +3,7 @@ const { getUser, safeEdit, safeDelete } = require('../../../shared/helpers');
 const { pendingTasks } = require('../../../shared/state');
 const { getCategories, createCategory, getCategoryTaskCount, deleteCategory } = require('../../../application/categories');
 const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../infrastructure/integrations/notion');
+const gcal = require('../../../infrastructure/integrations/googleCalendar');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
 const { getSettings, getNotionEnabled, updateSettings } = require('../../../application/settings');
 
@@ -39,11 +40,39 @@ function buildSettingsKeyboard(userId) {
     [Markup.button.callback('📁 Категории', 'settings_categories')],
   ];
 
-  // Notion интеграция скрыта из UI — временно
-  // if (notionConfigured()) {
-  //   rows.push([Markup.button.callback('🔌 Интеграции', 'settings_integrations')]);
-  // }
+  if (gcal.isConfigured()) {
+    const gcalLabel = gcal.isConnected(userId) ? '📅 Google Calendar ✅' : '📅 Google Calendar';
+    rows.push([Markup.button.callback(gcalLabel, 'settings_gcal')]);
+  }
 
+  return Markup.inlineKeyboard(rows);
+}
+
+function buildGCalText(userId) {
+  const connected = gcal.isConnected(userId);
+  const email     = gcal.getConnectedEmail(userId);
+  let text = `📅 *Google Calendar*\n\n`;
+  if (connected) {
+    text += `✅ Подключён`;
+    if (email) text += ` (${email})`;
+    text += `\n\nЗадачи с датой автоматически синхронизируются с твоим Google Calendar.`;
+    text += `\nСобытия из календаря отображаются в /plan.`;
+  } else {
+    text += `❌ Не подключён\n\nПодключи Google Calendar — задачи с датой будут автоматически появляться в твоём календаре, а события из календаря — в /plan.`;
+  }
+  return text;
+}
+
+function buildGCalKeyboard(userId) {
+  const connected = gcal.isConnected(userId);
+  const rows = [];
+  if (connected) {
+    rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
+  } else {
+    const authUrl = gcal.generateAuthUrl(userId);
+    rows.push([Markup.button.url('🔗 Подключить Google Calendar', authUrl)]);
+  }
+  rows.push([Markup.button.callback('◀️ Назад', 'settings_back')]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -87,6 +116,20 @@ function register(bot) {
     const userId = getUser(ctx);
     await ctx.answerCbQuery();
     await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
+  });
+
+  // Google Calendar
+  bot.action('settings_gcal', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, buildGCalText(userId), { parse_mode: 'Markdown', ...buildGCalKeyboard(userId) });
+  });
+
+  bot.action('gcal_disconnect', async (ctx) => {
+    const userId = getUser(ctx);
+    gcal.disconnect(userId);
+    await ctx.answerCbQuery('🔌 Google Calendar отключён');
+    await safeEdit(ctx, buildGCalText(userId), { parse_mode: 'Markdown', ...buildGCalKeyboard(userId) });
   });
 
   // Интеграции (Notion)

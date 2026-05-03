@@ -6,6 +6,7 @@ const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, advanceRecur
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
 const { formatTaskDetail, formatTaskText } = require('../formatters');
+const gcal = require('../../../infrastructure/integrations/googleCalendar');
 
 const PAGE_SIZE = 6;
 
@@ -116,11 +117,18 @@ async function handlePlanForDate(ctx, date) {
   const userId = ctx.from.id;
   const planned = getTasksByPlannedDate(userId, date);
 
+  let calEvents = [];
+  if (gcal.isConnected(userId)) {
+    try { calEvents = await gcal.getTodayEvents(userId, date); }
+    catch (e) { console.error('[plan] gcal events error:', e.message); }
+  }
+
   const state = pendingTasks.get(userId) ?? {};
   state.planData = {
     date,
     plannedIds:  planned.map(t => t.id),
     suggestions: null,  // null = не загружены; [] = загружены, пусто
+    calEvents,
   };
   pendingTasks.set(userId, state);
 
@@ -130,7 +138,7 @@ async function handlePlanForDate(ctx, date) {
 async function renderPlanSummary(ctx, userId) {
   const { planData } = pendingTasks.get(userId) ?? {};
   if (!planData) return;
-  const { date, plannedIds, suggestions } = planData;
+  const { date, plannedIds, suggestions, calEvents } = planData;
   const dateLabel = formatDateLabel(date);
 
   const lines   = [`📅 *План на ${dateLabel}*\n`];
@@ -159,6 +167,23 @@ async function renderPlanSummary(ctx, userId) {
 
   if (!plannedIds.length && suggestions !== null && suggestions.length === 0) {
     lines.push('_Задач нет. Напиши или скажи что нужно сделать — я запишу._');
+  }
+
+  // События Google Calendar
+  if (calEvents?.length) {
+    const tz = getSettings(userId).timezone;
+    lines.push(`\n📆 *В Google Calendar:*`);
+    calEvents.slice(0, 5).forEach(ev => {
+      const title = ev.summary ?? '(без названия)';
+      if (!ev.start?.dateTime) {
+        lines.push(`• ${title}`);
+      } else {
+        const time = new Date(ev.start.dateTime).toLocaleTimeString('ru-RU', {
+          hour: '2-digit', minute: '2-digit', timeZone: tz,
+        });
+        lines.push(`• ${time} ${title}`);
+      }
+    });
   }
 
   buttons.push([Markup.button.callback('📅 Другой день', 'plan_pick_date')]);

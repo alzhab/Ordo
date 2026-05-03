@@ -22,5 +22,11 @@ module.exports = {
   // В dev режиме используются отдельные Notion базы чтобы не засорять продакшен
   NOTION_DATABASE_ID:       IS_DEV ? process.env.NOTION_DATABASE_ID_DEV       : process.env.NOTION_DATABASE_ID,
   NOTION_PLANS_DATABASE_ID: IS_DEV ? process.env.NOTION_PLANS_DATABASE_ID_DEV : process.env.NOTION_PLANS_DATABASE_ID,
+  // Google Calendar OAuth2 — опционально, интеграция не запустится без этих переменных
+  GOOGLE_CLIENT_ID:     process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  GOOGLE_REDIRECT_URI:  process.env.GOOGLE_REDIRECT_URI,
+  // Railway автоматически устанавливает PORT для HTTP-трафика
+  PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : null,
   IS_DEV,
 };
