@@ -104,10 +104,13 @@ function updateTask(id, fields, userId = null) {
 
   // ─── Google Calendar sync ─────────────────────────────────────
   if (userId && gcal.isConnected(userId)) {
-    const isTerminal       = ['done', 'deleted'].includes(fields.status);
-    const plannedChanged   = 'planned_for' in fields;
-    const contentChanged   = 'title' in fields || 'description' in fields;
-    const gcalEventId      = before?.gcal_event_id ?? null;
+    const isTerminal     = ['done', 'deleted'].includes(fields.status);
+    const plannedChanged = 'planned_for' in fields;
+    // Поля влияющие на тип события в Calendar: all_day ↔ timed ↔ recurring
+    const typeChanged    = 'reminder_at' in fields || 'is_recurring' in fields ||
+                           'recur_days' in fields || 'recur_day_of_month' in fields || 'recur_time' in fields;
+    const contentChanged = 'title' in fields || 'description' in fields;
+    const gcalEventId    = before?.gcal_event_id ?? null;
 
     const { timezone } = getSettings(userId);
     const colors = getGcalColors(userId);
@@ -134,8 +137,8 @@ function updateTask(id, fields, userId = null) {
           .then(eid => { if (eid) taskRepo.updateTask(id, { gcal_event_id: eid }); })
           .catch(e => logSyncError(userId, `Calendar "${updated.title}": ${e.message}`));
       }
-    } else if (contentChanged && gcalEventId) {
-      // Название или описание изменились — обновляем событие/серию
+    } else if ((contentChanged || typeChanged) && gcalEventId) {
+      // Название, описание или тип события изменились — пересобираем событие в Calendar
       gcal.updateEvent(userId, gcalEventId, updated, timezone, colors).catch(() => {});
     }
   }
