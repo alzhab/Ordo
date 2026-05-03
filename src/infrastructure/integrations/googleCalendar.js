@@ -135,31 +135,58 @@ function disconnect(userId) {
 
 // ─── Calendar API ─────────────────────────────────────────────
 
-function taskToEvent(task) {
+// Сдвигает "HH:MM" на 1 час вперёд (для end time события)
+function addHour(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number);
+  const total  = h * 60 + m + 60;
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+// Строит RRULE для повторяющейся задачи
+// Ordo: recur_days=[0-6] (0=вс), recur_day_of_month, null recur_days = ежедневно
+const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+function buildRRule(task) {
+  if (task.recur_day_of_month) {
+    return `RRULE:FREQ=MONTHLY;BYMONTHDAY=${task.recur_day_of_month}`;
+  }
+  const days = task.recur_days
+    ? (typeof task.recur_days === 'string' ? JSON.parse(task.recur_days) : task.recur_days)
+    : null;
+  if (!days || days.length === 0) return 'RRULE:FREQ=DAILY';
+  return `RRULE:FREQ=WEEKLY;BYDAY=${days.map(d => BYDAY[d]).join(',')}`;
+}
+
+// Строит объект события для Google Calendar API.
+// timezone — IANA-строка часового пояса пользователя (для повторяющихся задач).
+function taskToEvent(task, timezone = 'UTC') {
   const event = { summary: task.title };
   if (task.description) event.description = task.description;
+  event.reminders = { useDefault: false, overrides: [] };
 
-  if (task.reminder_at && task.planned_for) {
-    // Timed event: используем reminder_at как время начала (хранится в UTC)
+  if (task.is_recurring && task.recur_time && task.planned_for) {
+    // Повторяющееся событие: время из recur_time, повторение из RRULE
+    const endTime = addHour(task.recur_time);
+    event.start      = { dateTime: `${task.planned_for}T${task.recur_time}:00`, timeZone: timezone };
+    event.end        = { dateTime: `${task.planned_for}T${endTime}:00`, timeZone: timezone };
+    event.recurrence = [buildRRule(task)];
+  } else if (task.reminder_at && task.planned_for) {
+    // Разовое событие в конкретное время (reminder_at хранится в UTC)
     const start = new Date(task.reminder_at);
-    const end   = new Date(start.getTime() + 60 * 60 * 1000); // длительность 1 час
+    const end   = new Date(start.getTime() + 60 * 60 * 1000);
     event.start = { dateTime: start.toISOString() };
     event.end   = { dateTime: end.toISOString() };
   } else if (task.planned_for) {
-    // All-day event: end date = next day (Google Calendar convention)
+    // Событие на весь день
     const nextDay = new Date(task.planned_for + 'T00:00:00Z');
     nextDay.setDate(nextDay.getDate() + 1);
     event.start = { date: task.planned_for };
     event.end   = { date: nextDay.toISOString().split('T')[0] };
   }
 
-  // Отключаем стандартные напоминания Google (уведомление "за 1 день в 23:30")
-  event.reminders = { useDefault: false, overrides: [] };
-
   return event;
 }
 
-async function createEvent(userId, task) {
+async function createEvent(userId, task, timezone = 'UTC') {
   if (!task.planned_for) return null;
   const token = await getAccessToken(userId);
   if (!token) return null;
@@ -167,7 +194,7 @@ async function createEvent(userId, task) {
   const res = await fetch(`${CAL_API}/calendars/primary/events`, {
     method:  'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify(taskToEvent(task)),
+    body:    JSON.stringify(taskToEvent(task, timezone)),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -177,7 +204,7 @@ async function createEvent(userId, task) {
   return event.id;
 }
 
-async function updateEvent(userId, gcalEventId, task) {
+async function updateEvent(userId, gcalEventId, task, timezone = 'UTC') {
   if (!gcalEventId) return;
   const token = await getAccessToken(userId);
   if (!token) return;
@@ -185,7 +212,7 @@ async function updateEvent(userId, gcalEventId, task) {
   await fetch(`${CAL_API}/calendars/primary/events/${gcalEventId}`, {
     method:  'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify(taskToEvent(task)),
+    body:    JSON.stringify(taskToEvent(task, timezone)),
   });
 }
 

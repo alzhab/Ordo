@@ -5,7 +5,7 @@ const subtaskRepo = require('../infrastructure/db/repositories/subtaskRepository
 const notion = require('../infrastructure/integrations/notion');
 const gcal  = require('../infrastructure/integrations/googleCalendar');
 const { logSyncError } = require('./notifications');
-const { getNotionEnabled } = require('./settings');
+const { getNotionEnabled, getSettings } = require('./settings');
 
 // Экспортируется для handlers — нужен для UI (показать кнопку "привязать к Notion")
 function isNotionEnabled(userId) {
@@ -62,7 +62,8 @@ function saveTask(userId, parsed) {
   }
 
   if (saved.planned_for && gcal.isConnected(userId)) {
-    gcal.createEvent(userId, saved)
+    const { timezone } = getSettings(userId);
+    gcal.createEvent(userId, saved, timezone)
       .then(eventId => { if (eventId) taskRepo.updateTask(saved.id, { gcal_event_id: eventId }); })
       .catch(e => logSyncError(userId, `Calendar "${saved.title}": ${e.message}`));
   }
@@ -107,8 +108,10 @@ function updateTask(id, fields, userId = null) {
     const contentChanged   = 'title' in fields || 'description' in fields;
     const gcalEventId      = before?.gcal_event_id ?? null;
 
+    const { timezone } = getSettings(userId);
+
     if (isTerminal && gcalEventId) {
-      // Задача завершена — удаляем событие из календаря
+      // Задача завершена/удалена — удаляем событие или серию из календаря
       gcal.deleteEvent(userId, gcalEventId).catch(() => {});
       taskRepo.updateTask(id, { gcal_event_id: null });
     } else if (plannedChanged) {
@@ -117,17 +120,21 @@ function updateTask(id, fields, userId = null) {
         gcal.deleteEvent(userId, gcalEventId).catch(() => {});
         taskRepo.updateTask(id, { gcal_event_id: null });
       } else if (fields.planned_for && gcalEventId) {
-        // Дата изменилась — обновляем событие
-        gcal.updateEvent(userId, gcalEventId, updated).catch(() => {});
+        // Для повторяющихся задач: RRULE в Google Calendar сам управляет датами,
+        // поэтому при автосдвиге через advanceRecurring не обновляем серию.
+        // Для обычных задач: обновляем событие если дата изменена вручную.
+        if (!updated.is_recurring) {
+          gcal.updateEvent(userId, gcalEventId, updated, timezone).catch(() => {});
+        }
       } else if (fields.planned_for && !gcalEventId) {
-        // Дата добавлена — создаём событие
-        gcal.createEvent(userId, updated)
+        // Дата добавлена впервые — создаём событие или серию
+        gcal.createEvent(userId, updated, timezone)
           .then(eid => { if (eid) taskRepo.updateTask(id, { gcal_event_id: eid }); })
           .catch(e => logSyncError(userId, `Calendar "${updated.title}": ${e.message}`));
       }
     } else if (contentChanged && gcalEventId) {
-      // Название или описание изменились — обновляем событие
-      gcal.updateEvent(userId, gcalEventId, updated).catch(() => {});
+      // Название или описание изменились — обновляем событие/серию
+      gcal.updateEvent(userId, gcalEventId, updated, timezone).catch(() => {});
     }
   }
 
