@@ -105,6 +105,8 @@ function updateTask(id, fields, userId = null) {
   // ─── Google Calendar sync ─────────────────────────────────────
   if (userId && gcal.isConnected(userId)) {
     const isTerminal     = ['done', 'deleted'].includes(fields.status);
+    const isWaiting      = fields.status === 'waiting';
+    const isReactivated  = fields.status === 'todo';
     const plannedChanged = 'planned_for' in fields;
     // Поля влияющие на тип события в Calendar: all_day ↔ timed ↔ recurring
     const typeChanged    = 'reminder_at' in fields || 'is_recurring' in fields ||
@@ -115,8 +117,8 @@ function updateTask(id, fields, userId = null) {
     const { timezone } = getSettings(userId);
     const colors = getGcalColors(userId);
 
-    if (isTerminal && gcalEventId) {
-      // Задача завершена/удалена — удаляем событие или серию из календаря
+    if ((isTerminal || isWaiting) && gcalEventId) {
+      // Задача завершена/удалена/waiting — удаляем событие из календаря
       gcal.deleteEvent(userId, gcalEventId).catch(() => {});
       taskRepo.updateTask(id, { gcal_event_id: null });
     } else if (plannedChanged) {
@@ -140,6 +142,12 @@ function updateTask(id, fields, userId = null) {
     } else if ((contentChanged || typeChanged) && gcalEventId) {
       // Название, описание или тип события изменились — пересобираем событие в Calendar
       gcal.updateEvent(userId, gcalEventId, updated, timezone, colors).catch(() => {});
+    } else if ((typeChanged || isReactivated) && !gcalEventId && updated.planned_for) {
+      // reminder_at добавлен без события, или задача возвращена в todo после done/waiting —
+      // создаём событие если задача имеет дату
+      gcal.createEvent(userId, updated, timezone, colors)
+        .then(eid => { if (eid) taskRepo.updateTask(id, { gcal_event_id: eid }); })
+        .catch(e => logSyncError(userId, `Calendar "${updated.title}": ${e.message}`));
     }
   }
 
