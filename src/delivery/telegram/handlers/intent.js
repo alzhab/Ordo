@@ -28,7 +28,6 @@ const {
   appendSubtaskWithNotion, editSubtaskTitleWithNotion,
 } = require('../../../application/subtasks');
 const { isPlansConfigured } = require('../../../infrastructure/integrations/notion');
-const apple = require('../../../infrastructure/integrations/appleCalendar');
 const { syncNewGoalToNotion } = require('./goals');
 const { renderPendingSteps, renderPendingStepSlider } = require('./subtasks');
 
@@ -473,35 +472,6 @@ async function handleText(ctx, text) {
       parse_mode: 'Markdown',
       ...taskDetailButtons(updated, null, false),
     });
-  }
-
-  // iCloud Calendar setup flow
-  if (state?.appleCalSetup) {
-    const setup = state.appleCalSetup;
-    if (setup.step === 'awaiting_email') {
-      state.appleCalSetup = { step: 'awaiting_password', email: text.trim() };
-      pendingTasks.set(userId, state);
-      return ctx.reply(
-        `🍎 Отлично! Теперь введи **пароль приложения** (app-specific password).\n\n` +
-        `Это НЕ твой основной пароль Apple ID. Создай его на [appleid.apple.com](https://appleid.apple.com) → Вход и безопасность → Пароли приложений.`,
-        { parse_mode: 'Markdown' }
-      );
-    }
-    if (setup.step === 'awaiting_password') {
-      delete state.appleCalSetup;
-      pendingTasks.set(userId, state);
-      const statusMsg = await ctx.reply('🔍 Подключаю к iCloud Calendar...');
-      try {
-        const { email, calendarUrl } = await apple.discoverAndSave(userId, setup.email, text.trim());
-        await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-        const { buildAppleText, buildAppleKeyboard } = require('./settings');
-        await ctx.reply(`✅ iCloud Calendar подключён!\n📅 ${email}`, { parse_mode: 'Markdown' });
-        return ctx.reply(buildAppleText(userId), { parse_mode: 'Markdown', ...buildAppleKeyboard(userId) });
-      } catch (e) {
-        await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-        return ctx.reply(`❌ Ошибка: ${e.message}\n\nПроверь email и пароль приложения и попробуй снова.`);
-      }
-    }
   }
 
   // Ввод времени уведомления (план или разбор)

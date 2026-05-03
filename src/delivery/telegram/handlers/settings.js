@@ -4,10 +4,9 @@ const { pendingTasks } = require('../../../shared/state');
 const { getCategories, createCategory, getCategoryTaskCount, deleteCategory } = require('../../../application/categories');
 const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const gcal  = require('../../../infrastructure/integrations/googleCalendar');
-const apple = require('../../../infrastructure/integrations/appleCalendar');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
 const { getSettings, getNotionEnabled, updateSettings, getGcalColors, updateGcalColors } = require('../../../application/settings');
-const { syncAllToCalendar, getUnsyncedCalendarTasks, syncColorForType, syncAllToAppleCal, getUnsyncedAppleCalTasks } = require('../../../application/tasks');
+const { syncAllToCalendar, getUnsyncedCalendarTasks, syncColorForType } = require('../../../application/tasks');
 
 function buildSettingsText(userId) {
   const s   = getSettings(userId);
@@ -47,11 +46,6 @@ function buildSettingsKeyboard(userId) {
     rows.push([Markup.button.callback(gcalLabel, 'settings_gcal')]);
   }
 
-  if (apple.isConnected(userId)) {
-    rows.push([Markup.button.callback('🍎 iCloud Calendar ✅', 'settings_apple')]);
-  } else {
-    rows.push([Markup.button.callback('🍎 iCloud Calendar', 'settings_apple')]);
-  }
 
   return Markup.inlineKeyboard(rows);
 }
@@ -121,44 +115,6 @@ function buildGCalKeyboard(userId) {
   } else {
     const authUrl = gcal.generateAuthUrl(userId);
     rows.push([Markup.button.url('🔗 Подключить Google Calendar', authUrl)]);
-  }
-  rows.push([Markup.button.callback('◀️ Назад', 'settings_back')]);
-  return Markup.inlineKeyboard(rows);
-}
-
-function buildAppleText(userId) {
-  const connected = apple.isConnected(userId);
-  const email     = apple.getConnectedEmail(userId);
-  let text = `🍎 *iCloud Calendar*\n\n`;
-  if (connected) {
-    text += `✅ Подключён`;
-    if (email) text += ` (${email})`;
-    text += `\n\nЗадачи с датой автоматически синхронизируются с твоим iCloud Calendar.`;
-    const errors = getSyncErrors(userId).filter(e => e.message.includes('iCloud'));
-    if (errors.length) {
-      text += `\n\n⚠️ *Последние ошибки:*\n`;
-      text += errors.slice(0, 3).map(e => `• \`${e.created_at.slice(5, 16)}\` ${e.message}`).join('\n');
-    }
-  } else {
-    text += `❌ Не подключён\n\n` +
-      `Подключи iCloud Calendar чтобы задачи с датой автоматически появлялись в твоём календаре.\n\n` +
-      `⚠️ Используй *пароль приложения* (app-specific password), а не основной пароль Apple ID.\n` +
-      `Создай его на [appleid.apple.com](https://appleid.apple.com) → Вход и безопасность → Пароли приложений.`;
-  }
-  return text;
-}
-
-function buildAppleKeyboard(userId) {
-  const connected = apple.isConnected(userId);
-  const rows = [];
-  if (connected) {
-    const unsynced = getUnsyncedAppleCalTasks(userId).length;
-    if (unsynced > 0) {
-      rows.push([Markup.button.callback(`🔄 Синхронизировать задачи (${unsynced})`, 'apple_sync_all')]);
-    }
-    rows.push([Markup.button.callback('🔌 Отключить', 'apple_disconnect')]);
-  } else {
-    rows.push([Markup.button.callback('🔗 Подключить iCloud Calendar', 'apple_connect')]);
   }
   rows.push([Markup.button.callback('◀️ Назад', 'settings_back')]);
   return Markup.inlineKeyboard(rows);
@@ -305,53 +261,6 @@ function register(bot) {
       await safeEdit(ctx, '⚠️ Ошибка синхронизации. Попробуй позже.', {
         ...buildGCalKeyboard(userId),
       });
-    }
-  });
-
-  // iCloud Calendar
-  bot.action('settings_apple', async (ctx) => {
-    const userId = getUser(ctx);
-    await ctx.answerCbQuery();
-    await safeEdit(ctx, buildAppleText(userId), { parse_mode: 'Markdown', ...buildAppleKeyboard(userId) });
-  });
-
-  bot.action('apple_disconnect', async (ctx) => {
-    const userId = getUser(ctx);
-    apple.disconnect(userId);
-    await ctx.answerCbQuery('🔌 iCloud Calendar отключён');
-    await safeEdit(ctx, buildAppleText(userId), { parse_mode: 'Markdown', ...buildAppleKeyboard(userId) });
-  });
-
-  bot.action('apple_connect', async (ctx) => {
-    const userId = getUser(ctx);
-    const state  = pendingTasks.get(userId) ?? {};
-    state.appleCalSetup = { step: 'awaiting_email' };
-    pendingTasks.set(userId, state);
-    await ctx.answerCbQuery();
-    await safeEdit(ctx,
-      `🍎 *Подключение iCloud Calendar*\n\n` +
-      `Введи свой Apple ID (email):`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'settings_apple')]]),
-      }
-    );
-  });
-
-  bot.action('apple_sync_all', async (ctx) => {
-    const userId = getUser(ctx);
-    await ctx.answerCbQuery('🔄 Синхронизирую...');
-    await safeEdit(ctx, '⏳ _Синхронизирую задачи с iCloud Calendar..._', { parse_mode: 'Markdown' });
-    try {
-      const { synced, failed, total } = await syncAllToAppleCal(userId);
-      const lines = [`✅ Синхронизация завершена`];
-      if (synced)       lines.push(`Добавлено в Calendar: *${synced}*`);
-      if (failed)       lines.push(`Ошибок: *${failed}*`);
-      if (total === 0)  lines.push('_Все задачи уже синхронизированы_');
-      await safeEdit(ctx, lines.join('\n'), { parse_mode: 'Markdown', ...buildAppleKeyboard(userId) });
-    } catch (e) {
-      console.error('[apple] sync_all error:', e.message);
-      await safeEdit(ctx, '⚠️ Ошибка синхронизации. Попробуй позже.', { ...buildAppleKeyboard(userId) });
     }
   });
 
@@ -510,4 +419,4 @@ async function renderCategoryList(ctx, userId, edit = false) {
   return edit ? ctx.editMessageText(text, opts) : ctx.reply(text, opts);
 }
 
-module.exports = { register, buildSettingsText, buildSettingsKeyboard, renderIntegrationsSettings, buildAppleText, buildAppleKeyboard };
+module.exports = { register, buildSettingsText, buildSettingsKeyboard, renderIntegrationsSettings };

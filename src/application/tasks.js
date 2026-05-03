@@ -4,7 +4,6 @@ const { getGoalByTitle } = require('../infrastructure/db/repositories/goalReposi
 const subtaskRepo = require('../infrastructure/db/repositories/subtaskRepository');
 const notion = require('../infrastructure/integrations/notion');
 const gcal  = require('../infrastructure/integrations/googleCalendar');
-const apple = require('../infrastructure/integrations/appleCalendar');
 const { logSyncError } = require('./notifications');
 const { getNotionEnabled, getSettings, getGcalColors } = require('./settings');
 
@@ -68,13 +67,6 @@ function saveTask(userId, parsed) {
     gcal.createEvent(userId, saved, timezone, colors)
       .then(eventId => { if (eventId) taskRepo.updateTask(saved.id, { gcal_event_id: eventId }); })
       .catch(e => logSyncError(userId, `Calendar "${saved.title}": ${e.message}`));
-  }
-
-  if (saved.planned_for && apple.isConnected(userId)) {
-    const { timezone } = getSettings(userId);
-    apple.createEvent(userId, saved, timezone)
-      .then(uid => { if (uid) taskRepo.updateTask(saved.id, { apple_cal_event_id: uid }); })
-      .catch(e => logSyncError(userId, `iCloud Calendar "${saved.title}": ${e.message}`));
   }
 
   return saved;
@@ -159,48 +151,10 @@ function updateTask(id, fields, userId = null) {
     }
   }
 
-  // ─── iCloud Calendar sync ─────────────────────────────────────
-  if (userId && apple.isConnected(userId)) {
-    const isTerminal     = ['done', 'deleted'].includes(fields.status);
-    const isWaiting      = fields.status === 'waiting';
-    const isReactivated  = fields.status === 'todo';
-    const plannedChanged = 'planned_for' in fields;
-    const typeChanged    = 'reminder_at' in fields || 'is_recurring' in fields ||
-                           'recur_days' in fields || 'recur_day_of_month' in fields || 'recur_time' in fields;
-    const contentChanged = 'title' in fields || 'description' in fields;
-    const appleEventId   = before?.apple_cal_event_id ?? null;
-
-    const { timezone } = getSettings(userId);
-
-    if ((isTerminal || isWaiting) && appleEventId) {
-      apple.deleteEvent(userId, appleEventId).catch(() => {});
-      taskRepo.updateTask(id, { apple_cal_event_id: null });
-    } else if (plannedChanged) {
-      if (!fields.planned_for && appleEventId) {
-        apple.deleteEvent(userId, appleEventId).catch(() => {});
-        taskRepo.updateTask(id, { apple_cal_event_id: null });
-      } else if (fields.planned_for && appleEventId) {
-        if (!updated.is_recurring) {
-          apple.updateEvent(userId, appleEventId, updated, timezone).catch(() => {});
-        }
-      } else if (fields.planned_for && !appleEventId) {
-        apple.createEvent(userId, updated, timezone)
-          .then(uid => { if (uid) taskRepo.updateTask(id, { apple_cal_event_id: uid }); })
-          .catch(e => logSyncError(userId, `iCloud Calendar "${updated.title}": ${e.message}`));
-      }
-    } else if ((contentChanged || typeChanged) && appleEventId) {
-      apple.updateEvent(userId, appleEventId, updated, timezone).catch(() => {});
-    } else if ((typeChanged || isReactivated) && !appleEventId && updated.planned_for) {
-      apple.createEvent(userId, updated, timezone)
-        .then(uid => { if (uid) taskRepo.updateTask(id, { apple_cal_event_id: uid }); })
-        .catch(e => logSyncError(userId, `iCloud Calendar "${updated.title}": ${e.message}`));
-    }
-  }
-
   return updated;
 }
 
-// Soft delete + архивирует страницу в Notion + удаляет событие из Google/iCloud Calendar
+// Soft delete + архивирует страницу в Notion + удаляет событие из Google Calendar
 function deleteTask(id, userId = null) {
   const task    = taskRepo.getTaskById(id);
   const deleted = taskRepo.updateTask(id, { status: 'deleted' });
@@ -209,9 +163,6 @@ function deleteTask(id, userId = null) {
   }
   if (userId && task?.gcal_event_id && gcal.isConnected(userId)) {
     gcal.deleteEvent(userId, task.gcal_event_id).catch(() => {});
-  }
-  if (userId && task?.apple_cal_event_id && apple.isConnected(userId)) {
-    apple.deleteEvent(userId, task.apple_cal_event_id).catch(() => {});
   }
   return deleted;
 }
@@ -245,7 +196,6 @@ const {
   getTasksByPlan,
   getUnsyncedTasks,
   getUnsyncedCalendarTasks,
-  getUnsyncedAppleCalTasks,
   getSyncedCalendarTasksByType,
   getDueReminders,
   getRecurringDueNow,
@@ -286,20 +236,6 @@ async function syncAllToCalendar(userId) {
   return { synced, failed, total: tasks.length };
 }
 
-async function syncAllToAppleCal(userId) {
-  const tasks = getUnsyncedAppleCalTasks(userId);
-  const { timezone } = getSettings(userId);
-  let synced = 0, failed = 0;
-  for (const task of tasks) {
-    try {
-      const uid = await apple.createEvent(userId, task, timezone);
-      if (uid) { taskRepo.updateTask(task.id, { apple_cal_event_id: uid }); synced++; }
-    } catch (e) {
-      logSyncError(userId, `iCloud bulk "${task.title}": ${e.message}`); failed++;
-    }
-  }
-  return { synced, failed, total: tasks.length };
-}
 
 module.exports = {
   isNotionEnabled,
@@ -314,9 +250,7 @@ module.exports = {
   deleteTask,
   getUnsyncedTasks,
   getUnsyncedCalendarTasks,
-  getUnsyncedAppleCalTasks,
   syncAllToCalendar,
-  syncAllToAppleCal,
   syncColorForType,
   getDueReminders,
   getRecurringDueNow,

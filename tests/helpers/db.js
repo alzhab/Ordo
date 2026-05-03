@@ -50,7 +50,6 @@ function createTestDb() {
       recur_time          TEXT,
       recur_remind_before INTEGER NOT NULL DEFAULT 0,
       gcal_event_id       TEXT,
-      apple_cal_event_id  TEXT,
       created_at          TEXT DEFAULT (datetime('now')),
       updated_at          TEXT DEFAULT (datetime('now'))
     );
