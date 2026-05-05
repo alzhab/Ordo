@@ -42,10 +42,11 @@ function formatRecurringSchedule(task) {
 }
 
 function formatTaskText(t, index) {
-  const icon    = t.is_recurring ? '🔄' : (STATUS_ICON[t.status] ?? '⬜');
-  const cat     = t.category_name ? ` · ${t.category_name}` : '';
-  const due     = t.planned_for ? ` · ${formatPlannedLabel(t.planned_for)}` : '';
-  return `${index}. ${icon} *${t.title}*${cat}${due}`;
+  const icon = t.is_recurring ? '🔄' : (STATUS_ICON[t.status] ?? '⬜');
+  const cal  = t.gcal_event_id ? ' 🗓' : '';
+  const cat  = t.category_name ? ` · ${t.category_name}` : '';
+  const due  = t.planned_for ? ` · ${formatPlannedLabel(t.planned_for)}` : '';
+  return `${index}. ${icon} *${t.title}*${cal}${cat}${due}`;
 }
 
 function formatTaskDetail(t, timezone) {
