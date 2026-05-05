@@ -122,7 +122,18 @@ async function getAccessToken(userId) {
 }
 
 function isConnected(userId) {
-  return !!(oauthRepo.getTokens(userId, PROVIDER)?.access_token);
+  const t = oauthRepo.getTokens(userId, PROVIDER);
+  if (!t?.access_token) return false;
+  // Если scope сохранён и не содержит calendar — токен получен без нужного разрешения
+  if (t.scope && !t.scope.includes('calendar')) return false;
+  return true;
+}
+
+// Возвращает true если токен есть но scope не содержит calendar (нужно переподключение)
+function needsReconnect(userId) {
+  const t = oauthRepo.getTokens(userId, PROVIDER);
+  if (!t?.access_token) return false;
+  return !!(t.scope && !t.scope.includes('calendar'));
 }
 
 function getConnectedEmail(userId) {
@@ -277,6 +288,7 @@ module.exports = {
   resolveState,
   exchangeCode,
   isConnected,
+  needsReconnect,
   getConnectedEmail,
   disconnect,
   createEvent,

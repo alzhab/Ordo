@@ -42,7 +42,9 @@ function buildSettingsKeyboard(userId) {
   ];
 
   if (gcal.isConfigured()) {
-    const gcalLabel = gcal.isConnected(userId) ? '📅 Google Calendar ✅' : '📅 Google Calendar';
+    let gcalLabel = '📅 Google Calendar';
+    if (gcal.needsReconnect(userId)) gcalLabel = '📅 Google Calendar ⚠️';
+    else if (gcal.isConnected(userId))  gcalLabel = '📅 Google Calendar ✅';
     rows.push([Markup.button.callback(gcalLabel, 'settings_gcal')]);
   }
 
@@ -78,10 +80,15 @@ function colorLabel(colorId) {
 }
 
 function buildGCalText(userId) {
-  const connected = gcal.isConnected(userId);
-  const email     = gcal.getConnectedEmail(userId);
+  const connected     = gcal.isConnected(userId);
+  const needReconnect = gcal.needsReconnect(userId);
+  const email         = gcal.getConnectedEmail(userId);
   let text = `📅 *Google Calendar*\n\n`;
-  if (connected) {
+  if (needReconnect) {
+    text += `⚠️ *Требуется переподключение*`;
+    if (email) text += ` (${email})`;
+    text += `\n\nТокен получен без разрешения на запись в Calendar. Отключи и подключи снова — Google попросит подтвердить доступ заново.`;
+  } else if (connected) {
     text += `✅ Подключён`;
     if (email) text += ` (${email})`;
     text += `\n\nЗадачи с датой автоматически синхронизируются с твоим Google Calendar.`;
@@ -103,9 +110,14 @@ function buildGCalText(userId) {
 }
 
 function buildGCalKeyboard(userId) {
-  const connected = gcal.isConnected(userId);
+  const connected     = gcal.isConnected(userId);
+  const needReconnect = gcal.needsReconnect(userId);
+  const authUrl       = gcal.generateAuthUrl(userId);
   const rows = [];
-  if (connected) {
+  if (needReconnect) {
+    rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
+    rows.push([Markup.button.url('🔗 Подключить заново', authUrl)]);
+  } else if (connected) {
     const unsynced = getUnsyncedCalendarTasks(userId).length;
     if (unsynced > 0) {
       rows.push([Markup.button.callback(`🔄 Синхронизировать задачи (${unsynced})`, 'gcal_sync_all')]);
@@ -113,7 +125,6 @@ function buildGCalKeyboard(userId) {
     rows.push([Markup.button.callback('🎨 Настроить цвета', 'gcal_colors')]);
     rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
   } else {
-    const authUrl = gcal.generateAuthUrl(userId);
     rows.push([Markup.button.url('🔗 Подключить Google Calendar', authUrl)]);
   }
   rows.push([Markup.button.callback('◀️ Назад', 'settings_back')]);
