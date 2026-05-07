@@ -95,21 +95,70 @@ async function handleMediaMessage(ctx, media, caption) {
   );
 }
 
-// Отправляет все вложения задачи в чат
-async function sendAttachments(ctx, taskId) {
+// Отправляет задачу вместе с вложениями в одном сообщении.
+// - Нет вложений → обычное текстовое сообщение
+// - Одно фото/видео/документ/аудио/анимация → медиа с caption = текст + кнопки
+// - Ссылка → добавляется в текст задачи строкой
+// - Стикер → текст+кнопки, потом стикер отдельно (Telegram не поддерживает caption)
+// - Несколько вложений → первое как медиа с caption+кнопками, остальные media group следом
+async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
   const { getAttachments } = require('../../../infrastructure/db/repositories/attachmentRepository');
   const attachments = getAttachments(taskId);
-  for (const a of attachments) {
-    try {
-      if (a.type === 'photo')          await ctx.replyWithPhoto(a.file_id);
-      else if (a.type === 'video')     await ctx.replyWithVideo(a.file_id);
-      else if (a.type === 'animation') await ctx.replyWithAnimation(a.file_id);
-      else if (a.type === 'sticker')   await ctx.replyWithSticker(a.file_id);
-      else if (a.type === 'audio')     await ctx.replyWithAudio(a.file_id);
-      else if (a.type === 'document')  await ctx.replyWithDocument(a.file_id);
-      else if (a.type === 'link')      await ctx.reply(a.url);
-    } catch (e) {
-      console.error('[attachments] send error:', e.message);
+
+  // Ссылки — добавляем в текст, не как отдельное сообщение
+  const links    = attachments.filter(a => a.type === 'link');
+  const mediaArr = attachments.filter(a => a.type !== 'link');
+
+  let fullText = taskText;
+  for (const link of links) {
+    fullText += `\n🔗 ${link.url}`;
+  }
+
+  if (mediaArr.length === 0) {
+    return ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
+  }
+
+  // caption ограничен 1024 символами в Telegram
+  const caption = fullText.length <= 1024 ? fullText : fullText.slice(0, 1021) + '…';
+  const captionOpts = { caption, parse_mode: 'Markdown', ...keyboard };
+
+  const first = mediaArr[0];
+  const rest  = mediaArr.slice(1);
+
+  const sendFirst = async () => {
+    switch (first.type) {
+      case 'photo':     return ctx.replyWithPhoto(first.file_id, captionOpts);
+      case 'video':     return ctx.replyWithVideo(first.file_id, captionOpts);
+      case 'document':  return ctx.replyWithDocument(first.file_id, captionOpts);
+      case 'audio':     return ctx.replyWithAudio(first.file_id, captionOpts);
+      case 'animation': return ctx.replyWithAnimation(first.file_id, captionOpts);
+      case 'sticker':
+        // Стикеры не поддерживают caption — текст отдельно, стикер следом
+        await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
+        return ctx.replyWithSticker(first.file_id);
+      default:
+        return ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
+    }
+  };
+
+  await sendFirst();
+
+  if (rest.length > 0) {
+    // Остальные вложения — media group (фото/видео) или отдельные файлы
+    const groupable = rest.filter(a => ['photo', 'video'].includes(a.type));
+    const solo      = rest.filter(a => !['photo', 'video'].includes(a.type));
+
+    if (groupable.length > 0) {
+      const mediaGroup = groupable.slice(0, 10).map(a => ({ type: a.type, media: a.file_id }));
+      await ctx.replyWithMediaGroup(mediaGroup).catch(e => console.error('[attachments] group error:', e.message));
+    }
+    for (const a of solo) {
+      try {
+        if (a.type === 'document')  await ctx.replyWithDocument(a.file_id);
+        else if (a.type === 'audio')     await ctx.replyWithAudio(a.file_id);
+        else if (a.type === 'animation') await ctx.replyWithAnimation(a.file_id);
+        else if (a.type === 'sticker')   await ctx.replyWithSticker(a.file_id);
+      } catch (e) { console.error('[attachments] send error:', e.message); }
     }
   }
 }
@@ -130,4 +179,4 @@ function register(bot) {
   });
 }
 
-module.exports = { register, sendAttachments, createTaskWithMedia, TYPE_LABEL };
+module.exports = { register, replyTaskWithMedia, createTaskWithMedia, TYPE_LABEL };
