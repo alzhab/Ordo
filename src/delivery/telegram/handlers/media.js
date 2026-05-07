@@ -178,7 +178,7 @@ async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
       ...(i === 0 ? { caption, parse_mode: 'Markdown' } : {}),
     }));
     await ctx.replyWithMediaGroup(mg).catch(e => console.error('[attachments] group error:', e.message));
-    await ctx.reply(' ', keyboard);
+    await ctx.reply('️Действия:', keyboard);
   } else if (albumItems.length === 1) {
     // Одно фото/видео → с caption + кнопками
     const a = albumItems[0];
