@@ -42,6 +42,10 @@ const taskPlanContext = new Map();
 // userId → { taskIds: number[], index: number }
 const taskSliders = new Map();
 
+// Хранит медиафайл/ссылку пока пользователь не дал название задачи.
+// userId → { type, file_id, file_name, url }
+const pendingMedia = new Map();
+
 // Mutex: userId которых сейчас обрабатывает бот.
 // Защищает от двойного тапа по inline-кнопке — Telegram иногда шлёт
 // один callback дважды если сервер отвечает медленно.
@@ -69,4 +73,4 @@ function releaseProcessing(userId) {
   processingUsers.delete(userId);3
 }
 
-module.exports = { pendingTasks, taskFilters, getFilter, taskPlanContext, taskSliders, acquireProcessing, releaseProcessing };
+module.exports = { pendingTasks, taskFilters, getFilter, taskPlanContext, taskSliders, pendingMedia, acquireProcessing, releaseProcessing };

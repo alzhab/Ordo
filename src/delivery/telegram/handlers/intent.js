@@ -1,6 +1,6 @@
 const { Markup } = require('telegraf');
 const { getUser, parseFlexibleDate, extractDateFromText, normalizeWaiting, extractNotionPageId, parseReminderDatetime, parserReminderToUtc, utcToLocal, parseTimeInput, localNow } = require('../../../shared/helpers');
-const { pendingTasks, taskFilters, getFilter } = require('../../../shared/state');
+const { pendingTasks, taskFilters, getFilter, pendingMedia } = require('../../../shared/state');
 const { getSettings, updateSettings } = require('../../../application/settings');
 const { formatRecurringSchedule } = require('../formatters');
 const { computeNextOccurrence } = require('../../../infrastructure/db/repositories/taskRepository');
@@ -299,9 +299,38 @@ async function handleManageCategory(ctx, userId, parsed) {
 
 // ─── Главный обработчик текста ────────────────────────────
 
+const URL_ONLY_RE = /^https?:\/\/\S+$/;
+
 async function handleText(ctx, text) {
   const userId = getUser(ctx);
   const state  = pendingTasks.get(userId);
+
+  // Прикрепление медиа: пользователь ввёл название после отправки файла
+  const pendingMediaItem = pendingMedia.get(userId);
+  if (pendingMediaItem) {
+    pendingMedia.delete(userId);
+    const { createTaskWithMedia, TYPE_LABEL } = require('./media');
+    const saved = await createTaskWithMedia(ctx, userId, text.trim(), pendingMediaItem);
+    return ctx.reply(
+      `✅ *${saved.title}* — сохранено\n📎 ${TYPE_LABEL[pendingMediaItem.type] ?? 'Вложение'} прикреплено`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('📋 Открыть задачу', `tv_${saved.id}`)],
+          [Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`), Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`)],
+        ]),
+      }
+    );
+  }
+
+  // Ссылка без текста → спросить название задачи
+  if (URL_ONLY_RE.test(text.trim())) {
+    const media = { type: 'link', file_id: null, file_name: null, url: text.trim() };
+    pendingMedia.set(userId, media);
+    return ctx.reply('🔗 Ссылка получена. Как назвать задачу?', {
+      ...Markup.inlineKeyboard([[Markup.button.callback('❌ Отмена', 'cancel_media')]]),
+    });
+  }
 
   // Онбординг: ввод времени уведомлений
   if (state?.onboarding?.step === 'waiting_time') {

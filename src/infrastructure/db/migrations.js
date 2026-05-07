@@ -258,3 +258,16 @@ db.exec(`
 `);
 try { db.exec(`ALTER TABLE tasks ADD COLUMN gcal_event_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE user_settings ADD COLUMN gcal_colors TEXT`); } catch {}
+
+// ─── Вложения задач ───────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS task_attachments (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id   INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    type      TEXT    NOT NULL,
+    file_id   TEXT,
+    file_name TEXT,
+    url       TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);

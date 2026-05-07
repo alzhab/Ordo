@@ -13,6 +13,7 @@ const {
 const { getGoalsWithProgress, getGoalById } = require('../../../application/goals');
 const { getCategoryNames, getCategoryByName, createCategory } = require('../../../application/categories');
 const { getSettings } = require('../../../application/settings');
+const { sendAttachments } = require('./media');
 
 function getUserTz(userId) { return getSettings(userId).timezone || null; }
 
@@ -105,6 +106,7 @@ function register(bot) {
     if (!task) return ctx.reply('Задача не найдена.');
     await safeDelete(ctx);
     await ctx.reply(formatTaskDetail(task, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(task, null, needsNotionLink(task, userId)) });
+    await sendAttachments(ctx, taskId);
   });
 
   // Просмотр задачи из контекста цели
@@ -118,6 +120,7 @@ function register(bot) {
     taskPlanContext.set(userId, goalId);
     await safeDelete(ctx);
     await ctx.reply(formatTaskDetail(task, getUserTz(userId)), { parse_mode: 'Markdown', ...taskDetailButtons(task, goalId, needsNotionLink(task, userId)) });
+    await sendAttachments(ctx, taskId);
   });
 
   // Смена статуса

@@ -1,4 +1,5 @@
 const { getSubtasks } = require('../../application/subtasks');
+const { getAttachments } = require('../../infrastructure/db/repositories/attachmentRepository');
 const { utcToLocal, parserReminderToUtc } = require('../../shared/helpers');
 
 const STATUS_ICON     = { not_started: '⬜', in_progress: '🔄', done: '✅', waiting: '⏸', todo: '☐', maybe: '💭' };
@@ -76,6 +77,10 @@ function formatTaskDetail(t, timezone) {
     const display = timezone ? utcToLocal(t.reminder_at, timezone) : t.reminder_at;
     const fired = t.reminder_sent ? ' _(отправлено)_' : '';
     lines.push(`*🔔 Напомнить:* ${display.slice(0, 16)}${fired}`);
+  }
+  const attachments = getAttachments(t.id);
+  if (attachments.length > 0) {
+    lines.push(`*📎 Вложения:* ${attachments.length}`);
   }
   // Notion интеграция скрыта из UI — временно
   // if (t.notion_page_id) {

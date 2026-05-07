@@ -82,6 +82,7 @@ require('./handlers/subtasks').register(bot);
 require('./handlers/settings').register(bot);
 require('./handlers/assistant').register(bot);
 require('./handlers/seed').register(bot);
+require('./handlers/media').register(bot);
 require('./handlers/intent').register(bot);
 
 // ─── Запуск ───────────────────────────────────────────────
