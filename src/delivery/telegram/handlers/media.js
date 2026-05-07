@@ -18,6 +18,10 @@ const TYPE_LABEL = {
   link:      '🔗 Ссылка',
 };
 
+// Буфер для альбомов: media_group_id → { ctx, userId, items, caption, timer }
+const albumBuffer = new Map();
+const ALBUM_FLUSH_MS = 500;
+
 function extractMediaFromMsg(msg) {
   if (msg.photo) {
     const largest = msg.photo[msg.photo.length - 1];
@@ -41,7 +45,9 @@ function extractMediaFromMsg(msg) {
   return null;
 }
 
-async function createTaskWithMedia(ctx, userId, title, media) {
+// Создаёт задачу по тексту title и прикрепляет все items (массив медиа)
+async function createTaskWithMedia(ctx, userId, title, items) {
+  const mediaItems = Array.isArray(items) ? items : [items];
   const tz = getSettings(userId).timezone;
   let parsed;
   try {
@@ -64,35 +70,72 @@ async function createTaskWithMedia(ctx, userId, title, media) {
   if (taskData.reminder_at) taskData.reminder_at = parserReminderToUtc(taskData.reminder_at, tz);
 
   const saved = saveTask(userId, taskData);
-  addAttachment(saved.id, media);
+  for (const item of mediaItems) addAttachment(saved.id, item);
   return saved;
 }
 
-async function handleMediaMessage(ctx, media, caption) {
-  const userId = getUser(ctx);
+function attachmentSummary(items) {
+  if (items.length === 1) return TYPE_LABEL[items[0].type] ?? 'Вложение';
+  const counts = {};
+  for (const it of items) counts[it.type] = (counts[it.type] ?? 0) + 1;
+  return Object.entries(counts).map(([t, n]) => `${TYPE_LABEL[t] ?? t} ×${n}`).join(', ');
+}
 
+function confirmKeyboard(saved) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('📋 Открыть задачу', `tv_${saved.id}`)],
+    [Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`), Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`)],
+  ]);
+}
+
+// Обработка сформированного альбома или одиночного медиа
+async function processMedia(ctx, userId, items, caption) {
   if (caption?.trim()) {
     const statusMsg = await ctx.reply('⏳ Анализирую...');
-    const saved = await createTaskWithMedia(ctx, userId, caption.trim(), media);
+    const saved = await createTaskWithMedia(ctx, userId, caption.trim(), items);
     await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
     return ctx.reply(
-      `✅ *${saved.title}* — сохранено\n📎 ${TYPE_LABEL[media.type] ?? 'Вложение'} прикреплено`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('📋 Открыть задачу', `tv_${saved.id}`)],
-          [Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`), Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`)],
-        ]),
-      }
+      `✅ *${saved.title}* — сохранено\n📎 ${attachmentSummary(items)} прикреплено`,
+      { parse_mode: 'Markdown', ...confirmKeyboard(saved) }
     );
   }
 
-  // Нет подписи — сохраняем медиа и спрашиваем название
-  pendingMedia.set(userId, media);
+  // Нет подписи — сохраняем все items и спрашиваем название
+  pendingMedia.set(userId, items);
+  const label = items.length > 1
+    ? `${items.length} файлов`
+    : (TYPE_LABEL[items[0].type] ?? 'Файл');
   return ctx.reply(
-    `${TYPE_LABEL[media.type] ?? 'Файл'} получен. Как назвать задачу?`,
+    `📎 ${label} получено. Как назвать задачу?`,
     { ...Markup.inlineKeyboard([[Markup.button.callback('❌ Отмена', 'cancel_media')]]) }
   );
+}
+
+async function handleMediaMessage(ctx, media, caption) {
+  const userId  = getUser(ctx);
+  const groupId = ctx.message?.media_group_id;
+
+  if (groupId) {
+    // Часть альбома — буферизуем, ждём остальные фото
+    let group = albumBuffer.get(groupId);
+    if (!group) {
+      group = { ctx, userId, items: [], caption: null };
+      albumBuffer.set(groupId, group);
+    }
+    group.items.push(media);
+    if (caption) group.caption = caption; // caption только у первого фото в альбоме
+
+    clearTimeout(group.timer);
+    group.timer = setTimeout(() => {
+      albumBuffer.delete(groupId);
+      processMedia(group.ctx, group.userId, group.items, group.caption)
+        .catch(e => console.error('[media] album error:', e.message));
+    }, ALBUM_FLUSH_MS);
+    return;
+  }
+
+  // Одиночное медиа — обрабатываем сразу
+  return processMedia(ctx, userId, [media], caption);
 }
 
 // Отправляет задачу вместе с вложениями в одном сообщении.
@@ -100,7 +143,7 @@ async function handleMediaMessage(ctx, media, caption) {
 // - Одно фото/видео/документ/аудио/анимация → медиа с caption = текст + кнопки
 // - Ссылка → добавляется в текст задачи строкой
 // - Стикер → текст+кнопки, потом стикер отдельно (Telegram не поддерживает caption)
-// - Несколько вложений → первое как медиа с caption+кнопками, остальные media group следом
+// - Несколько медиа → первое с caption+кнопками, остальные media group следом
 async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
   const { getAttachments } = require('../../../infrastructure/db/repositories/attachmentRepository');
   const attachments = getAttachments(taskId);
@@ -110,9 +153,7 @@ async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
   const mediaArr = attachments.filter(a => a.type !== 'link');
 
   let fullText = taskText;
-  for (const link of links) {
-    fullText += `\n🔗 ${link.url}`;
-  }
+  for (const link of links) fullText += `\n🔗 ${link.url}`;
 
   if (mediaArr.length === 0) {
     return ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
@@ -125,36 +166,30 @@ async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
   const first = mediaArr[0];
   const rest  = mediaArr.slice(1);
 
-  const sendFirst = async () => {
-    switch (first.type) {
-      case 'photo':     return ctx.replyWithPhoto(first.file_id, captionOpts);
-      case 'video':     return ctx.replyWithVideo(first.file_id, captionOpts);
-      case 'document':  return ctx.replyWithDocument(first.file_id, captionOpts);
-      case 'audio':     return ctx.replyWithAudio(first.file_id, captionOpts);
-      case 'animation': return ctx.replyWithAnimation(first.file_id, captionOpts);
-      case 'sticker':
-        // Стикеры не поддерживают caption — текст отдельно, стикер следом
-        await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
-        return ctx.replyWithSticker(first.file_id);
-      default:
-        return ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
-    }
-  };
-
-  await sendFirst();
+  switch (first.type) {
+    case 'photo':     await ctx.replyWithPhoto(first.file_id, captionOpts); break;
+    case 'video':     await ctx.replyWithVideo(first.file_id, captionOpts); break;
+    case 'document':  await ctx.replyWithDocument(first.file_id, captionOpts); break;
+    case 'audio':     await ctx.replyWithAudio(first.file_id, captionOpts); break;
+    case 'animation': await ctx.replyWithAnimation(first.file_id, captionOpts); break;
+    case 'sticker':
+      await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.replyWithSticker(first.file_id);
+      break;
+    default:
+      await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
+  }
 
   if (rest.length > 0) {
-    // Остальные вложения — media group (фото/видео) или отдельные файлы
     const groupable = rest.filter(a => ['photo', 'video'].includes(a.type));
     const solo      = rest.filter(a => !['photo', 'video'].includes(a.type));
-
     if (groupable.length > 0) {
-      const mediaGroup = groupable.slice(0, 10).map(a => ({ type: a.type, media: a.file_id }));
-      await ctx.replyWithMediaGroup(mediaGroup).catch(e => console.error('[attachments] group error:', e.message));
+      const mg = groupable.slice(0, 10).map(a => ({ type: a.type, media: a.file_id }));
+      await ctx.replyWithMediaGroup(mg).catch(e => console.error('[attachments] group error:', e.message));
     }
     for (const a of solo) {
       try {
-        if (a.type === 'document')  await ctx.replyWithDocument(a.file_id);
+        if (a.type === 'document')       await ctx.replyWithDocument(a.file_id);
         else if (a.type === 'audio')     await ctx.replyWithAudio(a.file_id);
         else if (a.type === 'animation') await ctx.replyWithAnimation(a.file_id);
         else if (a.type === 'sticker')   await ctx.replyWithSticker(a.file_id);

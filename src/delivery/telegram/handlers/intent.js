@@ -305,14 +305,18 @@ async function handleText(ctx, text) {
   const userId = getUser(ctx);
   const state  = pendingTasks.get(userId);
 
-  // Прикрепление медиа: пользователь ввёл название после отправки файла
-  const pendingMediaItem = pendingMedia.get(userId);
-  if (pendingMediaItem) {
+  // Прикрепление медиа: пользователь ввёл название после отправки файла/альбома
+  const pendingMediaItems = pendingMedia.get(userId);
+  if (pendingMediaItems) {
     pendingMedia.delete(userId);
     const { createTaskWithMedia, TYPE_LABEL } = require('./media');
-    const saved = await createTaskWithMedia(ctx, userId, text.trim(), pendingMediaItem);
+    const items = Array.isArray(pendingMediaItems) ? pendingMediaItems : [pendingMediaItems];
+    const saved = await createTaskWithMedia(ctx, userId, text.trim(), items);
+    const summary = items.length === 1
+      ? (TYPE_LABEL[items[0].type] ?? 'Вложение')
+      : `${items.length} вложений`;
     return ctx.reply(
-      `✅ *${saved.title}* — сохранено\n📎 ${TYPE_LABEL[pendingMediaItem.type] ?? 'Вложение'} прикреплено`,
+      `✅ *${saved.title}* — сохранено\n📎 ${summary} прикреплено`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
