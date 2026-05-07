@@ -138,17 +138,22 @@ async function handleMediaMessage(ctx, media, caption) {
   return processMedia(ctx, userId, [media], caption);
 }
 
-// Отправляет задачу вместе с вложениями в одном сообщении.
-// - Нет вложений → обычное текстовое сообщение
-// - Одно фото/видео/документ/аудио/анимация → медиа с caption = текст + кнопки
-// - Ссылка → добавляется в текст задачи строкой
-// - Стикер → текст+кнопки, потом стикер отдельно (Telegram не поддерживает caption)
-// - Несколько медиа → первое с caption+кнопками, остальные media group следом
+// Отправляет задачу вместе с вложениями.
+//
+// 1 вложение (фото/видео/документ/аудио/анимация):
+//   → медиа с caption = текст задачи + кнопки (одно сообщение)
+//
+// Несколько фото/видео:
+//   → sendMediaGroup (все фото как альбом, caption на первом)
+//   → отдельное сообщение с кнопками
+//   Telegram не поддерживает reply_markup в sendMediaGroup, поэтому кнопки отдельно.
+//
+// Ссылки → добавляются в текст строкой.
+// Стикер → caption не поддерживает, текст+кнопки идут отдельно.
 async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
   const { getAttachments } = require('../../../infrastructure/db/repositories/attachmentRepository');
   const attachments = getAttachments(taskId);
 
-  // Ссылки — добавляем в текст, не как отдельное сообщение
   const links    = attachments.filter(a => a.type === 'link');
   const mediaArr = attachments.filter(a => a.type !== 'link');
 
@@ -161,33 +166,42 @@ async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
 
   // caption ограничен 1024 символами в Telegram
   const caption = fullText.length <= 1024 ? fullText : fullText.slice(0, 1021) + '…';
-  const captionOpts = { caption, parse_mode: 'Markdown', ...keyboard };
 
-  const first = mediaArr[0];
-  const rest  = mediaArr.slice(1);
+  const albumItems = mediaArr.filter(a => ['photo', 'video'].includes(a.type));
+  const soloItems  = mediaArr.filter(a => !['photo', 'video'].includes(a.type));
 
-  switch (first.type) {
-    case 'photo':     await ctx.replyWithPhoto(first.file_id, captionOpts); break;
-    case 'video':     await ctx.replyWithVideo(first.file_id, captionOpts); break;
-    case 'document':  await ctx.replyWithDocument(first.file_id, captionOpts); break;
-    case 'audio':     await ctx.replyWithAudio(first.file_id, captionOpts); break;
-    case 'animation': await ctx.replyWithAnimation(first.file_id, captionOpts); break;
-    case 'sticker':
-      await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
-      await ctx.replyWithSticker(first.file_id);
-      break;
-    default:
-      await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
-  }
-
-  if (rest.length > 0) {
-    const groupable = rest.filter(a => ['photo', 'video'].includes(a.type));
-    const solo      = rest.filter(a => !['photo', 'video'].includes(a.type));
-    if (groupable.length > 0) {
-      const mg = groupable.slice(0, 10).map(a => ({ type: a.type, media: a.file_id }));
-      await ctx.replyWithMediaGroup(mg).catch(e => console.error('[attachments] group error:', e.message));
+  if (albumItems.length > 1) {
+    // Несколько фото/видео → альбом с caption на первом, кнопки отдельным сообщением
+    const mg = albumItems.slice(0, 10).map((a, i) => ({
+      type:  a.type,
+      media: a.file_id,
+      ...(i === 0 ? { caption, parse_mode: 'Markdown' } : {}),
+    }));
+    await ctx.replyWithMediaGroup(mg).catch(e => console.error('[attachments] group error:', e.message));
+    await ctx.reply('☝️ Действия:', keyboard);
+  } else if (albumItems.length === 1) {
+    // Одно фото/видео → с caption + кнопками
+    const a = albumItems[0];
+    const opts = { caption, parse_mode: 'Markdown', ...keyboard };
+    if (a.type === 'photo') await ctx.replyWithPhoto(a.file_id, opts);
+    else                    await ctx.replyWithVideo(a.file_id, opts);
+  } else {
+    // Нет фото/видео — только solo-файлы (документ, аудио, анимация, стикер)
+    const first = soloItems[0];
+    const opts  = { caption, parse_mode: 'Markdown', ...keyboard };
+    switch (first.type) {
+      case 'document':  await ctx.replyWithDocument(first.file_id, opts); break;
+      case 'audio':     await ctx.replyWithAudio(first.file_id, opts); break;
+      case 'animation': await ctx.replyWithAnimation(first.file_id, opts); break;
+      case 'sticker':
+        await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
+        await ctx.replyWithSticker(first.file_id);
+        break;
+      default:
+        await ctx.reply(fullText, { parse_mode: 'Markdown', ...keyboard });
     }
-    for (const a of solo) {
+    // Остальные solo-файлы (начиная со второго)
+    for (const a of soloItems.slice(1)) {
       try {
         if (a.type === 'document')       await ctx.replyWithDocument(a.file_id);
         else if (a.type === 'audio')     await ctx.replyWithAudio(a.file_id);
@@ -195,6 +209,17 @@ async function replyTaskWithMedia(ctx, taskText, keyboard, taskId) {
         else if (a.type === 'sticker')   await ctx.replyWithSticker(a.file_id);
       } catch (e) { console.error('[attachments] send error:', e.message); }
     }
+    return;
+  }
+
+  // Solo-файлы после альбома из фото/видео
+  for (const a of soloItems) {
+    try {
+      if (a.type === 'document')       await ctx.replyWithDocument(a.file_id);
+      else if (a.type === 'audio')     await ctx.replyWithAudio(a.file_id);
+      else if (a.type === 'animation') await ctx.replyWithAnimation(a.file_id);
+      else if (a.type === 'sticker')   await ctx.replyWithSticker(a.file_id);
+    } catch (e) { console.error('[attachments] send error:', e.message); }
   }
 }
 
