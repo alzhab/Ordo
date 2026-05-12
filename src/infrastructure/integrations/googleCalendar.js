@@ -93,7 +93,10 @@ async function getAccessToken(userId) {
 
   // Обновляем токен за 60 секунд до истечения
   if (stored.expiry_date && stored.expiry_date < Date.now() + 60_000) {
-    if (!stored.refresh_token) return null;
+    if (!stored.refresh_token) {
+      console.error('[gcal] Token expired and no refresh_token for user', userId);
+      throw new Error('Токен Google Calendar истёк. Переподключи Calendar в /settings.');
+    }
     try {
       const res = await fetch(TOKEN_URL, {
         method:  'POST',
@@ -106,15 +109,20 @@ async function getAccessToken(userId) {
         }),
       });
       const tokens = await res.json();
-      if (!res.ok) return null;
+      if (!res.ok) {
+        console.error('[gcal] Token refresh failed for user', userId, tokens.error ?? res.status);
+        throw new Error(`Ошибка обновления токена Google Calendar: ${tokens.error_description ?? tokens.error ?? res.status}`);
+      }
       oauthRepo.saveTokens(userId, PROVIDER, {
         ...stored,
         access_token: tokens.access_token,
         expiry_date:  tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : null,
       });
       return tokens.access_token;
-    } catch {
-      return null;
+    } catch (e) {
+      if (e.message.includes('токен') || e.message.includes('Token')) throw e;
+      console.error('[gcal] Token refresh exception for user', userId, e.message);
+      throw new Error(`Ошибка соединения с Google: ${e.message}`);
     }
   }
 
@@ -212,7 +220,7 @@ function taskToEvent(task, timezone = 'UTC', colors = {}) {
 async function createEvent(userId, task, timezone = 'UTC', colors = {}) {
   if (!task.planned_for) return null;
   const token = await getAccessToken(userId);
-  if (!token) return null;
+  if (!token) throw new Error('Нет доступа к Google Calendar (токен недоступен)');
 
   const res = await fetch(`${CAL_API}/calendars/primary/events`, {
     method:  'POST',
