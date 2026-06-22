@@ -17,6 +17,7 @@ const { startOnboarding } = require('./handlers/onboarding');
 const { getTasks } = require('../../application/tasks');
 const { getSettings, updateSettings } = require('../../application/settings');
 const CHANGELOG = require('../../shared/changelog');
+const db = require('../../infrastructure/db/connection');
 
 const TYPE_ICON = { new: '✨', improved: '🔧', fixed: '🐛' };
 
@@ -167,7 +168,42 @@ async function launchWithRetry(attempts = 5, delayMs = 5000) {
   console.error('[fatal] bot.launch() failed after all retries, exiting');
   process.exit(1);
 }
-launchWithRetry();
+
+// Рассылает changelog всем пользователям у кого last_seen_version устарела.
+// Запускается один раз после старта — только при bump версии в package.json.
+async function notifyChangelog() {
+  const latest = CHANGELOG[0];
+  if (!latest) return;
+
+  // Пользователи с устаревшей или отсутствующей версией у которых есть задачи
+  const users = db.prepare(`
+    SELECT u.id, COALESCE(s.last_seen_version, '') AS last_seen_version
+    FROM users u
+    LEFT JOIN user_settings s ON s.user_id = u.id
+    WHERE (s.last_seen_version IS NULL OR s.last_seen_version != ?)
+      AND EXISTS (SELECT 1 FROM tasks t WHERE t.user_id = u.id)
+  `).all(CURRENT_VERSION);
+
+  if (!users.length) return;
+  console.log(`[changelog] notifying ${users.length} users about v${CURRENT_VERSION}`);
+
+  for (const user of users) {
+    try {
+      const newEntries = getNewEntries(user.last_seen_version || null);
+      updateSettings(user.id, { last_seen_version: CURRENT_VERSION });
+
+      if (!newEntries.length) continue;
+
+      const text = `🎉 *Что нового в Ordo v${latest.version}*\n\n${formatVersion(latest)}`;
+      await bot.telegram.sendMessage(user.id, text, { parse_mode: 'Markdown' });
+    } catch (e) {
+      // Пользователь заблокировал бота или другая сетевая ошибка — не критично
+      console.error(`[changelog] user ${user.id}:`, e.message);
+    }
+  }
+}
+
+launchWithRetry().then(() => notifyChangelog());
 schedulerTask = scheduler.start(bot);
 console.log('Бот запущен!');
 bot.telegram.setMyCommands([
