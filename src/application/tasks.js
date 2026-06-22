@@ -12,6 +12,10 @@ function isNotionEnabled(userId) {
   return notion.isConfigured() && getNotionEnabled(userId);
 }
 
+function getTaskByNumber(userId, taskNumber) {
+  return taskRepo.getByNumber(userId, taskNumber);
+}
+
 // Резолвит category_id и goal_id из текстовых полей, вставляет задачу в БД.
 // Вызывается из saveTask и напрямую когда Notion sync не нужен.
 function createTask(userId, parsed) {
@@ -202,6 +206,7 @@ const {
   advanceRecurring,
   snoozeTask,
   cleanupDoneTasks,
+  moveOverdueTasks,
 } = taskRepo;
 
 // Обновляет цвет уже синхронизированных событий одного типа в Google Calendar.
@@ -242,6 +247,7 @@ module.exports = {
   createTask,
   saveTask,
   getTaskById,
+  getTaskByNumber,
   getTasks,
   getTasksByPlannedDate,
   getTasksByGoal,
@@ -257,5 +263,6 @@ module.exports = {
   advanceRecurring,
   snoozeTask,
   cleanupDoneTasks,
+  moveOverdueTasks,
   syncAllTasks,
 };

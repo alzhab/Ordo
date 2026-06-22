@@ -9,12 +9,52 @@ process.stderr.write = (chunk, ...args) => {
 };
 
 const { Telegraf, Markup } = require('telegraf');
-const { TELEGRAM_BOT_TOKEN } = require('../../shared/config');
+const { TELEGRAM_BOT_TOKEN, CURRENT_VERSION } = require('../../shared/config');
 const { getUser } = require('../../shared/helpers');
 
 const { buildSettingsText, buildSettingsKeyboard } = require('./handlers/settings');
 const { startOnboarding } = require('./handlers/onboarding');
 const { getTasks } = require('../../application/tasks');
+const { getSettings, updateSettings } = require('../../application/settings');
+const CHANGELOG = require('../../shared/changelog');
+
+const TYPE_ICON = { new: '✨', improved: '🔧', fixed: '🐛' };
+
+// Форматирует одну версию для /whatsnew
+function formatVersion(entry) {
+  const grouped = {};
+  for (const c of entry.changes) {
+    (grouped[c.type] = grouped[c.type] ?? []).push(c.text);
+  }
+  const typeLabel = { new: 'Новое', improved: 'Улучшено', fixed: 'Исправлено' };
+  const parts = [];
+  for (const [type, items] of Object.entries(grouped)) {
+    parts.push(`${TYPE_ICON[type] ?? '•'} *${typeLabel[type] ?? type}:*`);
+    items.forEach(t => parts.push(`• ${t}`));
+  }
+  return parts.join('\n');
+}
+
+// Возвращает записи changelog новее чем lastSeen (макс 3 версии).
+// changelog отсортирован новее-первым, поэтому берём с начала до индекса lastSeen.
+function getNewEntries(lastSeen) {
+  if (!lastSeen) return CHANGELOG.slice(0, 3);
+  const idx = CHANGELOG.findIndex(e => e.version === lastSeen);
+  if (idx <= 0) return [];
+  return CHANGELOG.slice(0, Math.min(idx, 3));
+}
+
+// Формирует компактный список изменений для /start (только bullet-points, без группировки)
+function formatChangesBrief(entries) {
+  const seen = new Set();
+  const lines = [];
+  for (const e of entries) {
+    for (const c of e.changes) {
+      if (!seen.has(c.text)) { seen.add(c.text); lines.push(`• ${c.text}`); }
+    }
+  }
+  return lines.join('\n');
+}
 
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
@@ -26,16 +66,36 @@ bot.start(async (ctx) => {
   const isNew     = getTasks(userId, {}).length === 0;
 
   if (isNew) {
+    updateSettings(userId, { last_seen_version: CURRENT_VERSION });
     await startOnboarding(ctx);
-  } else {
-    await ctx.reply(
-      `С возвращением, ${firstName}! 👋\n\n` +
-      `Напиши или скажи задачу, или выбери команду:\n` +
-      `/plan — план на сегодня\n` +
-      `/tasks — список задач\n` +
-      `/review — разбор зависших`
-    );
+    return;
   }
+
+  const settings    = getSettings(userId);
+  const newEntries  = getNewEntries(settings.last_seen_version);
+  updateSettings(userId, { last_seen_version: CURRENT_VERSION });
+
+  const todayTasks  = getTasks(userId, { plannedToday: true });
+  const countLine   = todayTasks.length > 0 ? ` У тебя *${todayTasks.length}* задач${todayTasks.length === 1 ? 'а' : 'и'} на сегодня.` : '';
+
+  let text = `С возвращением, ${firstName}! 👋${countLine}`;
+
+  if (newEntries.length > 0) {
+    const brief = formatChangesBrief(newEntries);
+    text += `\n\n🎉 *Пока тебя не было, добавили:*\n${brief}`;
+  }
+
+  await ctx.reply(text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('📋 Открыть план', `mplan_${new Date().toISOString().slice(0, 10)}`)]])
+  });
+});
+
+bot.command('whatsnew', (ctx) => {
+  const latest = CHANGELOG[0];
+  if (!latest) return ctx.reply('Список изменений пока пуст.');
+  const text = `🎉 *Что нового в Ordo v${latest.version}*\n\n${formatVersion(latest)}`;
+  ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
 // /onboarding — перезапустить онбординг (для тестирования и новых пользователей)

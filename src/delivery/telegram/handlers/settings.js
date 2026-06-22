@@ -8,6 +8,9 @@ const { getSyncErrors, clearSyncErrors } = require('../../../application/notific
 const { getSettings, getNotionEnabled, updateSettings, getGcalColors, updateGcalColors } = require('../../../application/settings');
 const { syncAllToCalendar, getUnsyncedCalendarTasks, syncColorForType } = require('../../../application/tasks');
 
+const REMINDER_COUNT_LABELS = { 0: 'выкл.', 1: '1 раз', 2: '2 раза', 4: '4 раза', 8: '8 раз' };
+const REMINDER_BEFORE_LABELS = { 15: '15 мин', 30: '30 мин', 60: '1 час', 120: '2 часа' };
+
 function buildSettingsText(userId) {
   const s   = getSettings(userId);
   const mt  = s.plan_time   ?? '09:00';
@@ -15,11 +18,14 @@ function buildSettingsText(userId) {
   const mOn = s.plan_enabled   !== 0;
   const rOn = s.review_enabled !== 0;
   const cats = getCategories(userId);
+  const remCount  = s.daily_reminder_count  ?? 1;
+  const remBefore = s.default_reminder_before ?? 30;
 
   return (
     `⚙️ *Настройки*\n\n` +
     `📋 /plan: *${mt}* — ${mOn ? 'включён' : 'выключен'}\n` +
     `🔍 /review: *${et}* — ${rOn ? 'включён' : 'выключен'}\n` +
+    `🔔 Напоминания: *${REMINDER_COUNT_LABELS[remCount] ?? remCount}* в день, за *${REMINDER_BEFORE_LABELS[remBefore] ?? remBefore + ' мин'}*\n` +
     `📁 Категорий: *${cats.length}*`
   );
 }
@@ -39,6 +45,7 @@ function buildSettingsKeyboard(userId) {
       Markup.button.callback(rOn ? '🔕 Выкл. разбор' : '🔔 Вкл. разбор', 'sn_rtoggle'),
     ],
     [Markup.button.callback('📁 Категории', 'settings_categories')],
+    [Markup.button.callback('🔔 Напоминания', 'settings_reminders')],
   ];
 
   if (gcal.isConfigured()) {
@@ -89,19 +96,26 @@ function buildGCalText(userId) {
     if (email) text += ` (${email})`;
     text += `\n\nТокен получен без разрешения на запись в Calendar. Отключи и подключи снова — Google попросит подтвердить доступ заново.`;
   } else if (connected) {
-    text += `✅ Подключён`;
-    if (email) text += ` (${email})`;
-    text += `\n\nЗадачи с датой автоматически синхронизируются с твоим Google Calendar.`;
-    text += `\nСобытия из календаря отображаются в /plan.`;
-    const colors = getGcalColors(userId);
-    text += `\n\n🎨 *Цвета событий:*\n`;
-    for (const [type, { label }] of Object.entries(GCAL_TASK_TYPES)) {
-      text += `${label}: ${colorLabel(colors[type])}\n`;
-    }
-    const errors = getSyncErrors(userId).filter(e => e.message.includes('Calendar'));
-    if (errors.length) {
-      text += `\n⚠️ *Последние ошибки:*\n`;
-      text += errors.slice(0, 3).map(e => `• \`${e.created_at.slice(5, 16)}\` ${e.message}`).join('\n');
+    const calErrors = getSyncErrors(userId).filter(e => e.message.includes('Calendar'));
+    const hasAuthError = calErrors.some(e => e.message.includes('переподключить'));
+    if (hasAuthError) {
+      text += `⚠️ *Требуется переподключение*`;
+      if (email) text += ` (${email})`;
+      text += `\n\nТокен Google Calendar был отозван. Отключи и подключи снова.`;
+    } else {
+      text += `✅ Подключён`;
+      if (email) text += ` (${email})`;
+      text += `\n\nЗадачи с датой автоматически синхронизируются с твоим Google Calendar.`;
+      text += `\nСобытия из календаря отображаются в /plan.`;
+      const colors = getGcalColors(userId);
+      text += `\n\n🎨 *Цвета событий:*\n`;
+      for (const [type, { label }] of Object.entries(GCAL_TASK_TYPES)) {
+        text += `${label}: ${colorLabel(colors[type])}\n`;
+      }
+      if (calErrors.length) {
+        text += `\n⚠️ *Последние ошибки:*\n`;
+        text += calErrors.slice(0, 3).map(e => `• \`${e.created_at.slice(5, 16)}\` ${e.message}`).join('\n');
+      }
     }
   } else {
     text += `❌ Не подключён\n\nПодключи Google Calendar — задачи с датой будут автоматически появляться в твоём календаре, а события из календаря — в /plan.`;
@@ -118,17 +132,54 @@ function buildGCalKeyboard(userId) {
     rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
     rows.push([Markup.button.url('🔗 Подключить заново', authUrl)]);
   } else if (connected) {
-    const unsynced = getUnsyncedCalendarTasks(userId).length;
-    if (unsynced > 0) {
-      rows.push([Markup.button.callback(`🔄 Синхронизировать задачи (${unsynced})`, 'gcal_sync_all')]);
+    const hasAuthError = getSyncErrors(userId)
+      .some(e => e.message.includes('Calendar') && e.message.includes('переподключить'));
+    if (hasAuthError) {
+      rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
+      rows.push([Markup.button.url('🔗 Подключить заново', authUrl)]);
+    } else {
+      const unsynced = getUnsyncedCalendarTasks(userId).length;
+      if (unsynced > 0) {
+        rows.push([Markup.button.callback(`🔄 Синхронизировать задачи (${unsynced})`, 'gcal_sync_all')]);
+      }
+      rows.push([Markup.button.callback('🎨 Настроить цвета', 'gcal_colors')]);
+      rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
     }
-    rows.push([Markup.button.callback('🎨 Настроить цвета', 'gcal_colors')]);
-    rows.push([Markup.button.callback('🔌 Отключить', 'gcal_disconnect')]);
   } else {
     rows.push([Markup.button.url('🔗 Подключить Google Calendar', authUrl)]);
   }
   rows.push([Markup.button.callback('◀️ Назад', 'settings_back')]);
   return Markup.inlineKeyboard(rows);
+}
+
+function buildRemindersText(userId) {
+  const s = getSettings(userId);
+  const count  = s.daily_reminder_count  ?? 1;
+  const before = s.default_reminder_before ?? 30;
+  return (
+    `🔔 *Напоминания о задачах*\n\n` +
+    `📋 Задачи без времени: *${REMINDER_COUNT_LABELS[count] ?? count}* в день\n` +
+    `⏰ Задачи с временем: за *${REMINDER_BEFORE_LABELS[before] ?? before + ' мин'}* по умолч.\n`
+  );
+}
+
+function buildRemindersKeyboard(userId) {
+  const s     = getSettings(userId);
+  const count  = s.daily_reminder_count  ?? 1;
+  const before = s.default_reminder_before ?? 30;
+
+  const countRow = [0, 1, 2, 4, 8].map(n =>
+    Markup.button.callback(n === count ? `✓ ${REMINDER_COUNT_LABELS[n]}` : (REMINDER_COUNT_LABELS[n] ?? String(n)), `sn_rem_count_${n}`)
+  );
+  const beforeRow = [15, 30, 60, 120].map(m =>
+    Markup.button.callback(m === before ? `✓ ${REMINDER_BEFORE_LABELS[m]}` : REMINDER_BEFORE_LABELS[m], `sn_rem_before_${m}`)
+  );
+
+  return Markup.inlineKeyboard([
+    countRow,
+    beforeRow,
+    [Markup.button.callback('◀️ Назад', 'settings_back')],
+  ]);
 }
 
 function register(bot) {
@@ -165,6 +216,29 @@ function register(bot) {
     updateSettings(userId, { notion_enabled: enabled ? 0 : 1 });
     await ctx.answerCbQuery(enabled ? '🔕 Синхронизация отключена' : '🔔 Синхронизация включена');
     await renderIntegrationsSettings(ctx, userId, true);
+  });
+
+  // Раздел «Напоминания о задачах»
+  bot.action('settings_reminders', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    await safeEdit(ctx, buildRemindersText(userId), { parse_mode: 'Markdown', ...buildRemindersKeyboard(userId) });
+  });
+
+  bot.action(/^sn_rem_count_(\d+)$/, async (ctx) => {
+    const userId = getUser(ctx);
+    const count  = parseInt(ctx.match[1]);
+    updateSettings(userId, { daily_reminder_count: count });
+    await ctx.answerCbQuery(`✅ ${REMINDER_COUNT_LABELS[count] ?? count} в день`);
+    await safeEdit(ctx, buildRemindersText(userId), { parse_mode: 'Markdown', ...buildRemindersKeyboard(userId) });
+  });
+
+  bot.action(/^sn_rem_before_(\d+)$/, async (ctx) => {
+    const userId  = getUser(ctx);
+    const minutes = parseInt(ctx.match[1]);
+    updateSettings(userId, { default_reminder_before: minutes });
+    await ctx.answerCbQuery(`✅ За ${REMINDER_BEFORE_LABELS[minutes] ?? minutes + ' мин'}`);
+    await safeEdit(ctx, buildRemindersText(userId), { parse_mode: 'Markdown', ...buildRemindersKeyboard(userId) });
   });
 
   bot.action('settings_back', async (ctx) => {

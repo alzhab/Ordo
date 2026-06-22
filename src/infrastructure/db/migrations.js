@@ -259,6 +259,29 @@ db.exec(`
 try { db.exec(`ALTER TABLE tasks ADD COLUMN gcal_event_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE user_settings ADD COLUMN gcal_colors TEXT`); } catch {}
 
+// ─── Фаза 7.3: напоминания о задачах ─────────────────────────
+try { db.exec(`ALTER TABLE user_settings ADD COLUMN daily_reminder_count INTEGER NOT NULL DEFAULT 1`); } catch {}
+try { db.exec(`ALTER TABLE user_settings ADD COLUMN default_reminder_before INTEGER NOT NULL DEFAULT 30`); } catch {}
+
+// ─── Фаза 7.5: changelog / версионность ──────────────────────
+try { db.exec(`ALTER TABLE user_settings ADD COLUMN last_seen_version TEXT NULL`); } catch {}
+
+// ─── Фаза 7.4: номера задач ───────────────────────────────────
+try { db.exec(`ALTER TABLE tasks ADD COLUMN task_number INTEGER`); } catch {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_user_number ON tasks(user_id, task_number)`); } catch {}
+// Бекфилл: присвоить порядковые номера всем существующим задачам per-user по created_at
+try {
+  const rows = db.prepare(`
+    SELECT id, user_id FROM tasks WHERE task_number IS NULL ORDER BY user_id, created_at ASC, id ASC
+  `).all();
+  const counters = {};
+  const upd = db.prepare('UPDATE tasks SET task_number = ? WHERE id = ?');
+  for (const row of rows) {
+    counters[row.user_id] = (counters[row.user_id] ?? 0) + 1;
+    upd.run(counters[row.user_id], row.id);
+  }
+} catch (e) { console.error('[db] task_number backfill error:', e.message); }
+
 // ─── Вложения задач ───────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS task_attachments (

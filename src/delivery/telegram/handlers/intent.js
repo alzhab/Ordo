@@ -16,7 +16,7 @@ const { parseIntent } = require('../../../infrastructure/ai/parser');
 const { handlePlanForDate, handleReview } = require('./assistant');
 const { transcribeVoice } = require('../../../infrastructure/ai/whisper');
 const {
-  getTasks, getTasksByPlannedDate, getTaskById, updateTask, deleteTask, saveTask, isNotionEnabled,
+  getTasks, getTasksByPlannedDate, getTaskById, getTaskByNumber, updateTask, deleteTask, saveTask, isNotionEnabled,
 } = require('../../../application/tasks');
 const {
   getGoalsWithProgress, getGoalById, getGoalByTitle, getTasksByGoal,
@@ -92,6 +92,14 @@ async function executeTaskAction(ctx, userId, task, actionObj) {
 }
 
 async function handleManageTask(ctx, userId, parsed) {
+  if (parsed.task_number) {
+    const task = getTaskByNumber(userId, parsed.task_number);
+    if (!task) {
+      return ctx.reply(`❌ Задача #${parsed.task_number} не найдена. Проверь номер в /tasks`);
+    }
+    return executeTaskAction(ctx, userId, task, parsed);
+  }
+
   const allTasks = getTasks(userId);
   const tasks = allTasks.filter(t =>
     fuzzyMatch(t.title, parsed.search) ||
@@ -636,17 +644,38 @@ async function saveAndReply(ctx, userId, parsed, timezone) {
     Markup.button.callback('✏️ Изменить', `edit_saved_${saved.id}`),
     Markup.button.callback('🗑 Отменить', `undo_task_${saved.id}`),
   ]);
+  let planLine = '';
   if (saved.planned_for) {
     const tz = getSettings(userId).timezone;
     const today    = localNow(tz);
     const tomorrow = (() => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
     const MONTHS   = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    const d = new Date(saved.planned_for + 'T00:00:00');
+    const fullDate = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
     const dateLabel = saved.planned_for === today    ? 'сегодня'
                     : saved.planned_for === tomorrow ? 'завтра'
-                    : (() => { const d = new Date(saved.planned_for + 'T00:00:00'); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; })();
+                    : fullDate;
+    planLine = `\n📅 Добавлено в план на ${dateLabel === 'сегодня' || dateLabel === 'завтра' ? `${dateLabel} (${fullDate})` : dateLabel}`;
     rows.push([Markup.button.callback(`📅 Открыть план на ${dateLabel}`, `mplan_${saved.planned_for}`)]);
   }
-  return ctx.reply(`✅ *${saved.title}* — сохранено`, {
+
+  // Тип 1: задача с конкретным временем → предложить выбрать за сколько напомнить
+  let reminderLine = '';
+  if (saved.reminder_at) {
+    const tz = timezone || getSettings(userId).timezone;
+    const localDt = utcToLocal(saved.reminder_at, tz); // "YYYY-MM-DD HH:MM"
+    const timeLabel = localDt.slice(11, 16);            // "HH:MM"
+    reminderLine = `\n🕐 ${timeLabel} — напомнить за:`;
+    rows.push([
+      Markup.button.callback('15 мин', `rembef_${saved.id}_15`),
+      Markup.button.callback('30 мин', `rembef_${saved.id}_30`),
+      Markup.button.callback('1 час',  `rembef_${saved.id}_60`),
+      Markup.button.callback('2 часа', `rembef_${saved.id}_120`),
+    ]);
+    rows.push([Markup.button.callback('🔕 Не напоминать', `rembef_${saved.id}_0`)]);
+  }
+
+  return ctx.reply(`✅ *${saved.title}* — сохранено${planLine}${reminderLine}`, {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard(rows),
   });
@@ -741,6 +770,26 @@ function handleManageSettings(ctx, userId, parsed) {
 }
 
 function register(bot) {
+  // Тип 1: выбор "за сколько напомнить" после сохранения задачи с временем
+  bot.action(/^rembef_(\d+)_(\d+)$/, async (ctx) => {
+    const taskId  = parseInt(ctx.match[1]);
+    const minutes = parseInt(ctx.match[2]);
+    const task    = getTaskById(taskId);
+    if (!task) return ctx.answerCbQuery('Задача не найдена');
+    if (minutes === 0) {
+      updateTask(taskId, { reminder_at: null, reminder_sent: 0 });
+      await ctx.answerCbQuery('🔕 Напоминание отключено');
+    } else {
+      const eventMs  = new Date(task.reminder_at.replace(' ', 'T') + ':00Z').getTime();
+      const remindMs = eventMs - minutes * 60000;
+      const remindUtc = new Date(remindMs).toISOString().slice(0, 16).replace('T', ' ');
+      updateTask(taskId, { reminder_at: remindUtc, reminder_sent: 0 });
+      const label = minutes < 60 ? `${minutes} мин` : `${minutes / 60} ч`;
+      await ctx.answerCbQuery(`🔔 Напомню за ${label}`);
+    }
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  });
+
   bot.on('text',  (ctx) => handleText(ctx, ctx.message.text));
   bot.on('voice', async (ctx) => {
     const statusMsg = await ctx.reply('🎙 Распознаю речь...');

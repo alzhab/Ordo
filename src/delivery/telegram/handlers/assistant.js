@@ -3,6 +3,7 @@ const { getUser, localNow } = require('../../../shared/helpers');
 const { getPlanRecommendations, getReviewData, invalidatePlanCache } = require('../../../application/assistant');
 const { isQuietMode, getSettings } = require('../../../application/settings');
 const { getTaskById, updateTask, deleteTask, getTasksByPlannedDate, advanceRecurring } = require('../../../application/tasks');
+const { getOverdueMovedToday } = require('../../../application/notifications');
 const { pendingTasks } = require('../../../shared/state');
 const { safeEdit } = require('../../../shared/helpers');
 const { formatTaskDetail, formatTaskText } = require('../formatters');
@@ -115,12 +116,14 @@ async function handlePlan(ctx) {
 async function handlePlanForDate(ctx, date) {
   const userId = ctx.from.id;
   const planned = getTasksByPlannedDate(userId, date);
+  const overdueMovedIds = getOverdueMovedToday(userId);
 
   const state = pendingTasks.get(userId) ?? {};
   state.planData = {
     date,
-    plannedIds:  planned.map(t => t.id),
-    suggestions: null,  // null = не загружены; [] = загружены, пусто
+    plannedIds:      planned.map(t => t.id),
+    overdueMovedIds: [...overdueMovedIds],
+    suggestions:     null,
   };
   pendingTasks.set(userId, state);
 
@@ -249,7 +252,9 @@ async function renderPlanSlider(ctx, userId) {
     }
     const tz = getSettings(userId).timezone;
     const detail = formatTaskDetail(task, tz);
-    await safeEdit(ctx, `${detail}\n\n${counter}`, {
+    const overdueSet = new Set(state.planData.overdueMovedIds ?? []);
+    const overduePrefix = overdueSet.has(task.id) ? '⚠️ _Перенесено с вчера_\n\n' : '';
+    await safeEdit(ctx, `${overduePrefix}${detail}\n\n${counter}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('✅ Сделал', `plan_done_${task.id}`), Markup.button.callback('📅 На завтра', `plan_tomorrow_${task.id}`)],

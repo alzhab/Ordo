@@ -49,6 +49,7 @@ function createTestDb() {
       recur_day_of_month  INTEGER,
       recur_time          TEXT,
       recur_remind_before INTEGER NOT NULL DEFAULT 0,
+      task_number         INTEGER,
       gcal_event_id       TEXT,
       created_at          TEXT DEFAULT (datetime('now')),
       updated_at          TEXT DEFAULT (datetime('now'))
@@ -66,16 +67,19 @@ function createTestDb() {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_settings (
-      user_id         INTEGER PRIMARY KEY REFERENCES users(id),
-      plan_time       TEXT    NOT NULL DEFAULT '09:00',
-      review_time     TEXT    NOT NULL DEFAULT '21:00',
-      timezone        TEXT    NOT NULL DEFAULT 'Asia/Oral',
-      plan_enabled    INTEGER NOT NULL DEFAULT 1,
-      review_enabled  INTEGER NOT NULL DEFAULT 1,
-      quiet_until     TEXT,
-      notion_enabled  INTEGER NOT NULL DEFAULT 1,
-      created_at      TEXT DEFAULT (datetime('now')),
-      updated_at      TEXT DEFAULT (datetime('now'))
+      user_id                  INTEGER PRIMARY KEY REFERENCES users(id),
+      plan_time                TEXT    NOT NULL DEFAULT '09:00',
+      review_time              TEXT    NOT NULL DEFAULT '21:00',
+      timezone                 TEXT    NOT NULL DEFAULT 'Asia/Oral',
+      plan_enabled             INTEGER NOT NULL DEFAULT 1,
+      review_enabled           INTEGER NOT NULL DEFAULT 1,
+      quiet_until              TEXT,
+      notion_enabled           INTEGER NOT NULL DEFAULT 1,
+      daily_reminder_count     INTEGER NOT NULL DEFAULT 1,
+      default_reminder_before  INTEGER NOT NULL DEFAULT 30,
+      last_seen_version        TEXT,
+      created_at               TEXT DEFAULT (datetime('now')),
+      updated_at               TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS notification_log (

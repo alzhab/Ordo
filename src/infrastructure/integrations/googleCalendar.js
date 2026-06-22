@@ -111,7 +111,11 @@ async function getAccessToken(userId) {
       const tokens = await res.json();
       if (!res.ok) {
         console.error('[gcal] Token refresh failed for user', userId, tokens.error ?? res.status);
-        throw new Error(`Ошибка обновления токена Google Calendar: ${tokens.error_description ?? tokens.error ?? res.status}`);
+        // Токен отозван или невалиден — удаляем из БД чтобы показать кнопку переподключения
+        if (tokens.error === 'invalid_grant') {
+          oauthRepo.deleteTokens(userId, PROVIDER);
+        }
+        throw new Error(`Требуется переподключить Google Calendar в /settings (${tokens.error_description ?? tokens.error ?? res.status})`);
       }
       oauthRepo.saveTokens(userId, PROVIDER, {
         ...stored,

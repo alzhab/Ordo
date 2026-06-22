@@ -42,16 +42,17 @@ function formatRecurringSchedule(task) {
 }
 
 function formatTaskText(t, index) {
-  const icon = t.is_recurring ? '🔄' : (STATUS_ICON[t.status] ?? '⬜');
-  const cal  = t.gcal_event_id ? ' 🗓' : '';
-  const cat  = t.category_name ? ` · ${t.category_name}` : '';
-  const due  = t.planned_for ? ` · ${formatPlannedLabel(t.planned_for)}` : '';
-  return `${index}. ${icon} *${t.title}*${cal}${cat}${due}`;
+  const icon   = t.is_recurring ? '🔄' : (STATUS_ICON[t.status] ?? '⬜');
+  const cal    = t.gcal_event_id ? ' 🗓' : '';
+  const cat    = t.category_name ? ` · ${t.category_name}` : '';
+  const due    = t.planned_for ? ` · ${formatPlannedLabel(t.planned_for)}` : '';
+  const num    = t.task_number != null ? `\`#${t.task_number}\`` : `${index}.`;
+  return `${num} ${icon} *${t.title}*${cal}${cat}${due}`;
 }
 
 function formatTaskDetail(t, timezone) {
   const statusLabel = { not_started: '⬜ Не начата', in_progress: '🔄 В работе', done: '✅ Готово', waiting: '⏸ В ожидании', todo: '☐ В очереди' };
-  const lines = [`📌 *${t.title}*\n`];
+  const lines = t.task_number != null ? [`\`#${t.task_number}\``, `📌 *${t.title}*\n`] : [`📌 *${t.title}*\n`];
   if (t.is_recurring) {
     lines.push(`*Повторяется:* ${formatRecurringSchedule(t)}`);
     lines.push(`*Следующий раз:* ${t.planned_for ?? '—'}`);

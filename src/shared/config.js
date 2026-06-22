@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const CURRENT_VERSION = require('../../package.json').version;
+
 // При отсутствии обязательных переменных бот не запустится.
 // Notion переменные не обязательны — интеграция опциональна.
 const REQUIRED = ['TELEGRAM_BOT_TOKEN', 'GROQ_API_KEY', 'ANTHROPIC_API_KEY'];
@@ -29,4 +31,5 @@ module.exports = {
   // Railway автоматически устанавливает PORT для HTTP-трафика
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : null,
   IS_DEV,
+  CURRENT_VERSION,
 };

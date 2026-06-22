@@ -145,7 +145,8 @@ waiting_reason — описывай что именно ждёшь (не что 
 Если intent = "manage_task", верни:
 {
   "intent": "manage_task",
-  "search": string,
+  "task_number": integer | null,
+  "search": string | null,
   "action": "update_status" | "delete" | "assign_plan" | "assign_category" | "set_planned_for" | "set_waiting" | "set_reminder",
   "status": "not_started" | "in_progress" | "waiting" | "done" | null,
   "plan": string | null,
@@ -155,20 +156,25 @@ waiting_reason — описывай что именно ждёшь (не что 
   "waiting_until": ISO date string | null,
   "reminder_at": "YYYY-MM-DD HH:MM" | "через N минут" | "через N часов" | null
 }
+Если пользователь называет задачу по номеру ("задачу 214", "номер 47", просто "47" после глагола) — ставь task_number и оставляй search: null.
+Если по названию — task_number: null, search: название.
 Примеры manage_task:
-- "удали задачу X" → action: "delete"
-- "задача X в работу" / "переведи X в работу" → action: "update_status", status: "in_progress"
-- "отметь X выполненной" / "X готова" → action: "update_status", status: "done"
-- "верни X в очередь" → action: "update_status", status: "not_started"
-- "перенеси X в план Y" → action: "assign_plan", plan: "Y"
-- "поставь X на дату Y" / "запланируй X на Y" → action: "set_planned_for", date: "Y"
-- "задача X в ожидании, жду доставку с WB до 25 марта" → action: "set_waiting", waiting_reason: "жду доставку с WB", waiting_until: "2026-03-25"
-- "задача X в ожидании, жду ответа от врача" → action: "set_waiting", waiting_reason: "жду ответа от врача", waiting_until: null
-- "задача X ждёт" / "X pending" / "жду по X" → action: "set_waiting"
-- "напомни про X завтра в 10:00" → action: "set_reminder", reminder_at: "<завтра> 10:00"
-- "напомни мне про X в пятницу" → action: "set_reminder", reminder_at: "<пятница> 09:00"
-- "напомни про X через 30 минут" → action: "set_reminder", reminder_at: "через 30 минут"
-- "напомни про X через 2 часа" → action: "set_reminder", reminder_at: "через 2 часа"
+- "удали задачу X" → task_number: null, search: "X", action: "delete"
+- "удали номер 47" → task_number: 47, search: null, action: "delete"
+- "задача 214 готова" / "задачу 12 сделал" → task_number: 214, search: null, action: "update_status", status: "done"
+- "перенеси задачу 214 на понедельник" → task_number: 214, search: null, action: "set_planned_for", date: "<понедельник>"
+- "задача X в работу" / "переведи X в работу" → task_number: null, search: "X", action: "update_status", status: "in_progress"
+- "отметь X выполненной" / "X готова" → task_number: null, search: "X", action: "update_status", status: "done"
+- "верни X в очередь" → task_number: null, search: "X", action: "update_status", status: "not_started"
+- "перенеси X в план Y" → task_number: null, search: "X", action: "assign_plan", plan: "Y"
+- "поставь X на дату Y" / "запланируй X на Y" → task_number: null, search: "X", action: "set_planned_for", date: "Y"
+- "задача X в ожидании, жду доставку с WB до 25 марта" → task_number: null, search: "X", action: "set_waiting", waiting_reason: "жду доставку с WB", waiting_until: "2026-03-25"
+- "задача X в ожидании, жду ответа от врача" → task_number: null, search: "X", action: "set_waiting", waiting_reason: "жду ответа от врача", waiting_until: null
+- "задача X ждёт" / "X pending" / "жду по X" → task_number: null, search: "X", action: "set_waiting"
+- "напомни про X завтра в 10:00" → task_number: null, search: "X", action: "set_reminder", reminder_at: "<завтра> 10:00"
+- "напомни мне про X в пятницу" → task_number: null, search: "X", action: "set_reminder", reminder_at: "<пятница> 09:00"
+- "напомни про X через 30 минут" → task_number: null, search: "X", action: "set_reminder", reminder_at: "через 30 минут"
+- "напомни про X через 2 часа" → task_number: null, search: "X", action: "set_reminder", reminder_at: "через 2 часа"
 
 Если intent = "query_tasks", верни:
 {

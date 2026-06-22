@@ -1,10 +1,11 @@
 const cron = require('node-cron');
 const db = require('../../infrastructure/db/connection');
-const { wasNotifiedToday, logNotification, getRecurringDueNow, getDueReminders } = require('../../application/notifications');
+const { wasNotifiedToday, wasNotifiedInSlot, logNotification, getRecurringDueNow, getDueReminders } = require('../../application/notifications');
 const { isQuietMode } = require('../../application/settings');
 const { handlePlan, handleReview } = require('./handlers/assistant');
 const { getReviewData } = require('../../application/assistant');
-const { updateTask, advanceRecurring, cleanupDoneTasks } = require('../../application/tasks');
+const { updateTask, advanceRecurring, cleanupDoneTasks, moveOverdueTasks, getTasksByPlannedDate } = require('../../application/tasks');
+const { localNow } = require('../../shared/helpers');
 
 // Получить всех активных пользователей с их настройками
 function getActiveUsers() {
@@ -14,6 +15,8 @@ function getActiveUsers() {
            COALESCE(s.review_time, '21:00') AS review_time,
            COALESCE(s.plan_enabled, 1) AS plan_enabled,
            COALESCE(s.review_enabled, 1) AS review_enabled,
+           COALESCE(s.timezone, 'Asia/Oral') AS timezone,
+           COALESCE(s.daily_reminder_count, 1) AS daily_reminder_count,
            s.quiet_until
     FROM users u
     LEFT JOIN user_settings s ON s.user_id = u.id
@@ -59,8 +62,78 @@ function makeFakeCtx(bot, userId) {
   };
 }
 
-// Отслеживаем дату последней еженедельной очистки чтобы не запускать повторно
+const REMINDER_SLOTS = {
+  1: ['14:00'],
+  2: ['11:00', '17:00'],
+  4: ['10:00', '13:00', '16:00', '19:00'],
+  8: ['09:00', '11:00', '13:00', '15:00', '17:00', '19:00', '20:00', '21:00'],
+};
+
+function getReminderSlots(count) {
+  return REMINDER_SLOTS[count] ?? [];
+}
+
+// Отслеживаем дату последнего переноса просрочки и еженедельной очистки
+let lastOverdueMove   = null;
 let lastWeeklyCleanup = null;
+
+// Переносит просроченные todo-задачи на сегодня (00:05 UTC каждый день).
+function runMoveOverdueTasks() {
+  const now = new Date();
+  if (now.getUTCHours() !== 0 || now.getUTCMinutes() !== 5) return;
+  const today = now.toISOString().slice(0, 10);
+  if (lastOverdueMove === today) return;
+  lastOverdueMove = today;
+  try {
+    const moved = moveOverdueTasks();
+    if (moved.length > 0) {
+      for (const { id, user_id } of moved) {
+        logNotification(user_id, 'overdue_moved', id);
+      }
+      console.log(`[scheduler] overdue moved: ${moved.length} tasks`);
+    }
+  } catch (e) {
+    console.error('[scheduler] overdue move error:', e.message);
+  }
+}
+
+async function runDailyReminders(bot, users) {
+  for (const user of users) {
+    try {
+      if (user.daily_reminder_count === 0) continue;
+      if (user.quiet_until && new Date(user.quiet_until) > new Date()) continue;
+
+      const slots = getReminderSlots(user.daily_reminder_count);
+      const tz = user.timezone || 'Asia/Oral';
+      if (!slots.includes(getCurrentHHMM(tz))) continue;
+      if (wasNotifiedInSlot(user.id)) continue;
+
+      const today = localNow(tz);
+      const todoTasks = getTasksByPlannedDate(user.id, today);
+      if (todoTasks.length === 0) continue;
+
+      const total = db.prepare(`
+        SELECT COUNT(*) AS count FROM tasks
+        WHERE user_id = ? AND planned_for = ? AND status != 'deleted'
+      `).get(user.id, today)?.count ?? 0;
+
+      const taskLines = todoTasks.slice(0, 5).map(t => `📋 ${t.title}`).join('\n');
+      const text = `👋 *Напоминаю о задачах на сегодня:*\n\n${taskLines}\n\nОсталось: *${todoTasks.length}* из ${total}`;
+
+      await bot.telegram.sendMessage(user.id, text, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '📋 Открыть план', callback_data: `mplan_${today}` },
+          ]],
+        },
+      });
+      logNotification(user.id, 'daily_reminder');
+    } catch (e) {
+      console.error(`[scheduler] daily reminder user ${user.id}:`, e.message);
+    }
+  }
+}
 
 function runWeeklyCleanup() {
   const now  = new Date();
@@ -80,6 +153,8 @@ function runWeeklyCleanup() {
 function start(bot) {
   // Каждую минуту проверяем всех пользователей
   const task = cron.schedule('* * * * *', async () => {
+    // Перенос просроченных задач (00:05 UTC каждый день)
+    runMoveOverdueTasks();
     // Еженедельная очистка выполненных задач (воскресенье 02:00 UTC)
     runWeeklyCleanup();
 
@@ -90,6 +165,9 @@ function start(bot) {
       console.error('[scheduler] getActiveUsers error:', e.message);
       return;
     }
+
+    // Дневные дайджесты о задачах (Тип 2)
+    await runDailyReminders(bot, users);
 
     // Напоминания для обычных задач
     try {

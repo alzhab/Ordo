@@ -39,6 +39,15 @@ function computeNextOccurrence(recur_days, recur_day_of_month, fromTomorrow = fa
   return start.toISOString().split('T')[0];
 }
 
+function getNextTaskNumber(userId) {
+  const row = db.prepare('SELECT MAX(task_number) AS max FROM tasks WHERE user_id = ?').get(userId);
+  return (row.max ?? 0) + 1;
+}
+
+function getByNumber(userId, taskNumber) {
+  return db.prepare(`${TASK_SELECT} WHERE t.user_id = ? AND t.task_number = ?`).get(userId, taskNumber);
+}
+
 // Принимает уже разрешённые поля: category_id, goal_id.
 // Бизнес-логика резолвинга (категория по имени, цель по заголовку) — в application/tasks.js.
 function createTask(userId, parsed) {
@@ -46,13 +55,16 @@ function createTask(userId, parsed) {
     ? (typeof parsed.recur_days === 'string' ? parsed.recur_days : JSON.stringify(parsed.recur_days))
     : null;
 
+  const taskNumber = getNextTaskNumber(userId);
+
   const result = db.prepare(`
     INSERT INTO tasks (
       user_id, title, description, status, category_id, goal_id, planned_for,
       waiting_reason, waiting_until, reminder_at,
-      is_recurring, recur_days, recur_day_of_month, recur_time, recur_remind_before
+      is_recurring, recur_days, recur_day_of_month, recur_time, recur_remind_before,
+      task_number
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     parsed.title,
@@ -60,7 +72,7 @@ function createTask(userId, parsed) {
     parsed.status ?? 'todo',
     parsed.category_id ?? null,
     parsed.goal_id ?? null,
-    parsed.plannedFor ? String(parsed.plannedFor).slice(0, 10) : null,
+    (parsed.plannedFor ?? parsed.planned_for) ? String(parsed.plannedFor ?? parsed.planned_for).slice(0, 10) : null,
     parsed.waiting_reason ?? null,
     parsed.waiting_until ? String(parsed.waiting_until).slice(0, 10) : null,
     parsed.reminder_at ?? null,
@@ -69,6 +81,7 @@ function createTask(userId, parsed) {
     parsed.recur_day_of_month ?? null,
     parsed.recur_time ?? null,
     parsed.recur_remind_before ?? 0,
+    taskNumber,
   );
 
   return getTaskById(result.lastInsertRowid);
@@ -285,9 +298,27 @@ function advanceRecurring(taskId) {
   return updateTask(taskId, { planned_for: nextDate, status: 'todo' });
 }
 
+// Переносит просроченные todo-задачи на сегодня.
+// Возвращает массив { id, user_id } для последующего логирования.
+function moveOverdueTasks() {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT id, user_id FROM tasks
+    WHERE planned_for < ? AND status = 'todo' AND is_recurring = 0
+  `).all(today);
+  if (rows.length > 0) {
+    db.prepare(`
+      UPDATE tasks SET planned_for = ?, updated_at = datetime('now')
+      WHERE planned_for < ? AND status = 'todo' AND is_recurring = 0
+    `).run(today, today);
+  }
+  return rows;
+}
+
 module.exports = {
   createTask,
   getTaskById,
+  getByNumber,
   getTasks,
   getTasksByPlannedDate,
   getTasksByGoal,
@@ -303,4 +334,5 @@ module.exports = {
   computeNextOccurrence,
   snoozeTask,
   cleanupDoneTasks,
+  moveOverdueTasks,
 };

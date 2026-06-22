@@ -33,6 +33,27 @@ function getDueReminders() {
   return taskRepo.getDueReminders();
 }
 
+// Проверяет, отправлялось ли daily_reminder в текущий слот (последние 59 минут).
+// Слоты всегда расстоянием ≥ 60 мин, поэтому 59-минутное окно гарантирует одну отправку.
+function wasNotifiedInSlot(userId) {
+  return !!db.prepare(`
+    SELECT 1 FROM notification_log
+    WHERE user_id = ? AND type = 'daily_reminder'
+      AND sent_at >= datetime('now', '-59 minutes')
+    LIMIT 1
+  `).get(userId);
+}
+
+// Возвращает Set task_id, перенесённых сегодня из просрочки.
+function getOverdueMovedToday(userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT task_id FROM notification_log
+    WHERE user_id = ? AND type = 'overdue_moved' AND date(sent_at) = ?
+  `).all(userId, today);
+  return new Set(rows.map(r => r.task_id));
+}
+
 function getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth) {
   return taskRepo.getRecurringDueNow(currentHHMM, currentDay, currentDayOfMonth);
 }
@@ -43,6 +64,8 @@ module.exports = {
   wasNotifiedToday,
   getDueReminders,
   getRecurringDueNow,
+  wasNotifiedInSlot,
+  getOverdueMovedToday,
   logSyncError: syncErrorRepo.logSyncError,
   getSyncErrors: syncErrorRepo.getSyncErrors,
   clearSyncErrors: syncErrorRepo.clearSyncErrors,
