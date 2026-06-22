@@ -203,8 +203,9 @@ async function notifyChangelog() {
   }
 }
 
-launchWithRetry().then(() => notifyChangelog());
+launchWithRetry();
 schedulerTask = scheduler.start(bot);
+notifyChangelog().catch(e => console.error('[changelog] startup notify error:', e.message));
 console.log('Бот запущен!');
 bot.telegram.setMyCommands([
   { command: 'add',      description: 'Добавить задачу' },
