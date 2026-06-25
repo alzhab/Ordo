@@ -148,39 +148,23 @@ async function handleAlice(req, res) {
 
   // ── Аккаунт не привязан ──────────────────────────────────
   if (!user) {
-    if (sessionState.awaitingCode) {
-      const codeMatch = command.replace(/\s/g, '').match(/\d{6}/);
-      if (codeMatch) {
-        const code    = codeMatch[0];
-        const entry   = aliceLinkCodes.get(code);
-        if (entry && Date.now() < entry.expiresAt) {
-          aliceLinkCodes.delete(code);
-          setAliceUserId(entry.userId, aliceUserId);
-          return respond(res,
-            'Отлично! Аккаунт Telegram привязан. Теперь говорите задачи — я запишу.',
-            false,
-            { awaitingCode: false }
-          );
-        }
-        return respond(res,
-          'Код не найден или истёк срок. Получите новый код в боте Ordo и назовите его.',
-          false,
-          { awaitingCode: true }
-        );
+    // Если прислали 6 цифр — пробуем привязать независимо от session_state
+    const codeMatch = command.replace(/\s/g, '').match(/^\d{6}$/);
+    if (codeMatch) {
+      const code  = codeMatch[0];
+      const entry = aliceLinkCodes.get(code);
+      if (entry && Date.now() < entry.expiresAt) {
+        aliceLinkCodes.delete(code);
+        setAliceUserId(entry.userId, aliceUserId);
+        return respond(res, 'Отлично! Аккаунт Telegram привязан. Теперь говорите задачи — я запишу.');
       }
-      return respond(res,
-        'Пожалуйста, назовите шестизначный код из Telegram.',
-        false,
-        { awaitingCode: true }
-      );
+      return respond(res, 'Код не найден или истёк срок. Получите новый код в боте Орdo и назовите его.');
     }
 
     return respond(res,
       'Добро пожаловать в Орdo! Чтобы начать, откройте бота Орdo в Телеграм, ' +
       'нажмите на кнопку «Привязать Алису» в настройках, ' +
-      'затем назовите мне шестизначный код.',
-      false,
-      { awaitingCode: true }
+      'затем назовите мне шестизначный код.'
     );
   }
 
