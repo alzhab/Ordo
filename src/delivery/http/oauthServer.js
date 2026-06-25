@@ -5,6 +5,7 @@
 const http = require('http');
 const { URL } = require('url');
 const gcal  = require('../../infrastructure/integrations/googleCalendar');
+const { handleAlice } = require('../alice/handler');
 
 function html(title, body) {
   return (
@@ -75,6 +76,8 @@ function start(bot, port) {
       const url = new URL(req.url, `http://localhost`);
       if (url.pathname === '/oauth/google/callback') {
         await handleGoogleCallback(bot, url, res);
+      } else if (url.pathname === '/alice' && req.method === 'POST') {
+        await handleAlice(req, res);
       } else if (url.pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('ok');

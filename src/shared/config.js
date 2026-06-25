@@ -28,6 +28,8 @@ module.exports = {
   GOOGLE_CLIENT_ID:     process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   GOOGLE_REDIRECT_URI:  process.env.GOOGLE_REDIRECT_URI,
+  // Яндекс Алиса: токен навыка для валидации входящих запросов (опционально)
+  ALICE_SKILL_TOKEN: process.env.ALICE_SKILL_TOKEN ?? null,
   // Railway автоматически устанавливает PORT для HTTP-трафика
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : null,
   IS_DEV,

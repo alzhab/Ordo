@@ -73,4 +73,9 @@ function releaseProcessing(userId) {
   processingUsers.delete(userId);3
 }
 
-module.exports = { pendingTasks, taskFilters, getFilter, taskPlanContext, taskSliders, pendingMedia, acquireProcessing, releaseProcessing };
+// Временные коды для привязки Яндекс Алисы к аккаунту Telegram.
+// code (string 6 цифр) → { userId: number, expiresAt: ms timestamp }
+// TTL 5 минут, проверяется при обработке запроса от Алисы.
+const aliceLinkCodes = new Map();
+
+module.exports = { pendingTasks, taskFilters, getFilter, taskPlanContext, taskSliders, pendingMedia, acquireProcessing, releaseProcessing, aliceLinkCodes };

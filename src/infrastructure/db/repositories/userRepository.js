@@ -14,4 +14,16 @@ function ensureUser(userId, username) {
   }
 }
 
-module.exports = { ensureUser };
+function findByAliceUserId(aliceUserId) {
+  return db.prepare('SELECT * FROM users WHERE alice_user_id = ?').get(aliceUserId) ?? null;
+}
+
+function setAliceUserId(userId, aliceUserId) {
+  db.prepare('UPDATE users SET alice_user_id = ? WHERE id = ?').run(aliceUserId, userId);
+}
+
+function getAliceUserId(userId) {
+  return db.prepare('SELECT alice_user_id FROM users WHERE id = ?').get(userId)?.alice_user_id ?? null;
+}
+
+module.exports = { ensureUser, findByAliceUserId, setAliceUserId, getAliceUserId };

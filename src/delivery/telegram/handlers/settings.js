@@ -1,12 +1,13 @@
 const { Markup } = require('telegraf');
 const { getUser, safeEdit, safeDelete } = require('../../../shared/helpers');
-const { pendingTasks } = require('../../../shared/state');
+const { pendingTasks, aliceLinkCodes } = require('../../../shared/state');
 const { getCategories, createCategory, getCategoryTaskCount, deleteCategory } = require('../../../application/categories');
 const { isConfigured: notionConfigured, isPlansConfigured } = require('../../../infrastructure/integrations/notion');
 const gcal  = require('../../../infrastructure/integrations/googleCalendar');
 const { getSyncErrors, clearSyncErrors } = require('../../../application/notifications');
 const { getSettings, getNotionEnabled, updateSettings, getGcalColors, updateGcalColors } = require('../../../application/settings');
 const { syncAllToCalendar, getUnsyncedCalendarTasks, syncColorForType } = require('../../../application/tasks');
+const { getAliceUserId, setAliceUserId } = require('../../../infrastructure/db/repositories/userRepository');
 
 const REMINDER_COUNT_LABELS = { 0: 'выкл.', 1: '1 раз', 2: '2 раза', 4: '4 раза', 8: '8 раз' };
 const REMINDER_BEFORE_LABELS = { 15: '15 мин', 30: '30 мин', 60: '1 час', 120: '2 часа' };
@@ -55,6 +56,8 @@ function buildSettingsKeyboard(userId) {
     rows.push([Markup.button.callback(gcalLabel, 'settings_gcal')]);
   }
 
+  const aliceLabel = getAliceUserId(userId) ? '🎙 Алиса ✅' : '🎙 Алиса';
+  rows.push([Markup.button.callback(aliceLabel, 'settings_alice')]);
 
   return Markup.inlineKeyboard(rows);
 }
@@ -463,6 +466,53 @@ function register(bot) {
     deleteCategory(catId);
     await ctx.answerCbQuery('🗑 Удалено');
     await renderCategoryList(ctx, userId, true);
+  });
+
+  // ─── Яндекс Алиса ────────────────────────────────────────
+
+  bot.action('settings_alice', async (ctx) => {
+    const userId = getUser(ctx);
+    await ctx.answerCbQuery();
+    const aliceId = getAliceUserId(userId);
+    if (aliceId) {
+      await safeEdit(ctx,
+        '🎙 *Яндекс Алиса*\n\n✅ Аккаунт привязан.\n\nМожешь говорить задачи Алисе — они появятся здесь.',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔌 Отвязать', 'settings_alice_unlink')],
+            [Markup.button.callback('◀️ Назад', 'settings_back')],
+          ]),
+        }
+      );
+    } else {
+      // Генерируем новый код (старый для этого пользователя инвалидируем)
+      for (const [code, data] of aliceLinkCodes.entries()) {
+        if (data.userId === userId) aliceLinkCodes.delete(code);
+      }
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      aliceLinkCodes.set(code, { userId, expiresAt: Date.now() + 5 * 60 * 1000 });
+
+      await safeEdit(ctx,
+        `🎙 *Яндекс Алиса*\n\n` +
+        `Чтобы привязать аккаунт:\n\n` +
+        `1. Скажи Алисе: _«Алиса, запусти Орdo»_\n` +
+        `2. Назови код:\n\n` +
+        `*${code}*\n\n` +
+        `_Код действителен 5 минут_`,
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', 'settings_back')]]),
+        }
+      );
+    }
+  });
+
+  bot.action('settings_alice_unlink', async (ctx) => {
+    const userId = getUser(ctx);
+    setAliceUserId(userId, null);
+    await ctx.answerCbQuery('🔌 Алиса отвязана');
+    await safeEdit(ctx, buildSettingsText(userId), { parse_mode: 'Markdown', ...buildSettingsKeyboard(userId) });
   });
 }
 

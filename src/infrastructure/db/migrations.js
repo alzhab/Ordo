@@ -282,6 +282,10 @@ try {
   }
 } catch (e) { console.error('[db] task_number backfill error:', e.message); }
 
+// ─── Яндекс Алиса: привязка аккаунта ────────────────────
+try { db.exec(`ALTER TABLE users ADD COLUMN alice_user_id TEXT`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_alice_user_id ON users(alice_user_id)`); } catch {}
+
 // ─── Вложения задач ───────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS task_attachments (
