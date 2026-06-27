@@ -354,9 +354,12 @@ ${planList ? `Существующие планы: ${planList}` : ''}
 Отвечай только JSON без markdown-разметки.`;
 }
 
-// Claude иногда оборачивает JSON в ```json ... ``` — убираем перед парсингом
+// Claude иногда оборачивает JSON в ```json ... ``` или добавляет текст после — убираем
 function stripJsonFences(raw) {
-  return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  // Извлекаем только JSON-объект на случай если Claude добавил пояснение после }
+  const match = s.match(/\{[\s\S]*\}/);
+  return match ? match[0] : s;
 }
 
 function callClaude(params) {

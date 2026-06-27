@@ -132,7 +132,7 @@ async function handleAlice(req, res) {
   const aliceUserId    = body.session?.user?.user_id;
   const isNewSession   = body.session?.new ?? false;
   const command        = (body.request?.command ?? '').trim().toLowerCase();
-  const utterance      = (body.request?.original_utterance ?? command).trim();
+  const utterance      = command || (body.request?.original_utterance ?? '').trim();
   const sessionState   = body.state?.session ?? {};
 
   if (!aliceUserId) {
