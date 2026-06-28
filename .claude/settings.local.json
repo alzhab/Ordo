@@ -14,7 +14,11 @@
       "Bash(kill %1)",
       "Bash(ls /Users/alzhan/Projects/Ordo/src/*.js)",
       "Bash(xargs -I{} basename {})",
-      "Bash(perl -i -pe \"s|require\\\\\\('\\\\./\\([^']+\\)'\\\\\\)|require\\('../\\\\$1'\\)|g\" /Users/alzhan/Projects/Ordo/src/shared/helpers.js)"
+      "Bash(perl -i -pe \"s|require\\\\\\('\\\\./\\([^']+\\)'\\\\\\)|require\\('../\\\\$1'\\)|g\" /Users/alzhan/Projects/Ordo/src/shared/helpers.js)",
+      "Bash(sqlite3 *)",
+      "Bash(git -C /Users/alzhan/Projects/Ordo add src/infrastructure/ai/parser.js src/delivery/alice/handler.js)",
+      "Bash(git -C /Users/alzhan/Projects/Ordo commit -m 'fix: парсер устойчив к тексту после JSON; alice использует command без префикса *)",
+      "Bash(git -C /Users/alzhan/Projects/Ordo push origin main)"
     ]
   }
 }
