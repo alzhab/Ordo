@@ -212,7 +212,8 @@ waiting_reason — описывай что именно ждёшь (не что 
 Если intent = "manage_tasks_bulk", верни:
 {
   "intent": "manage_tasks_bulk",
-  "scope": "all" | "first_n" | "last_n" | "half",
+  "task_numbers": number[] | null,
+  "scope": "all" | "first_n" | "last_n" | "half" | null,
   "n": number | null,
   "filter": {
     "category": string | null,
@@ -225,13 +226,16 @@ waiting_reason — описывай что именно ждёшь (не что 
   "plan": string | null,
   "category": string | null
 }
+Если пользователь называет конкретные номера задач — используй task_numbers, scope оставь null.
 Примеры manage_tasks_bulk:
-- "все задачи готовы" → scope: "all", action: "update_status", status: "done"
-- "первые 3 задачи в работу" → scope: "first_n", n: 3, action: "update_status", status: "in_progress"
-- "половина задач удали" → scope: "half", action: "delete"
-- "все задачи по дому в работу" → scope: "all", filter: {category: "Дом"}, action: "update_status", status: "in_progress"
-- "последние 2 задачи удали" → scope: "last_n", n: 2, action: "delete"
-- "все невыполненные задачи готовы" → scope: "all", filter: {status: "not_started"}, action: "update_status", status: "done"
+- "удали задачи 5, 7, 12" → task_numbers: [5, 7, 12], scope: null, action: "delete"
+- "задачи 3 и 8 готовы" → task_numbers: [3, 8], scope: null, action: "update_status", status: "done"
+- "все задачи готовы" → task_numbers: null, scope: "all", action: "update_status", status: "done"
+- "первые 3 задачи в работу" → task_numbers: null, scope: "first_n", n: 3, action: "update_status", status: "in_progress"
+- "половина задач удали" → task_numbers: null, scope: "half", action: "delete"
+- "все задачи по дому в работу" → task_numbers: null, scope: "all", filter: {category: "Дом"}, action: "update_status", status: "in_progress"
+- "последние 2 задачи удали" → task_numbers: null, scope: "last_n", n: 2, action: "delete"
+- "все невыполненные задачи готовы" → task_numbers: null, scope: "all", filter: {status: "not_started"}, action: "update_status", status: "done"
 
 Если intent = "manage_category", верни:
 {

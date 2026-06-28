@@ -232,6 +232,10 @@ async function handleManageGoal(ctx, userId, parsed) {
 const handleManagePlan = handleManageGoal;
 
 function resolveTaskScope(allTasks, parsed) {
+  if (parsed.task_numbers?.length) {
+    const nums = new Set(parsed.task_numbers.map(Number));
+    return allTasks.filter(t => nums.has(t.task_number));
+  }
   let tasks = [...allTasks];
   const f = parsed.filter ?? {};
   if (f.category) tasks = tasks.filter(t => fuzzyMatch(t.category_name ?? '', f.category));
