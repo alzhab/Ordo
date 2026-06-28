@@ -5,18 +5,23 @@
 //   - Привязка аккаунта (6-значный код из Telegram)
 //   - Создание задачи (любой текст → AI parser)
 //   - Список задач («мои задачи», «задачи», «что есть»)
-//   - Задачи на сегодня («план», «план на сегодня»)
-//   - Отметить задачу выполненной («задача N готова», «отметь N»)
+//   - План на сегодня с AI-приоритизацией («план», «план на сегодня», «что у меня сегодня»)
+//   - Одна важная задача («что мне делать», «что сейчас делать»)
+//   - Незавершённые задачи дня («что не сделал», «что не успел»)
+//   - Отметить задачу выполненной по номеру или названию
 //   - Помощь («помощь», «что ты умеешь»)
 
 const { ALICE_SKILL_TOKEN } = require('../../shared/config');
 const { aliceLinkCodes }    = require('../../shared/state');
 const { findByAliceUserId, setAliceUserId } = require('../../infrastructure/db/repositories/userRepository');
 const { parseIntent }       = require('../../infrastructure/ai/parser');
-const { saveTask, getTasks, getTaskByNumber, updateTask } = require('../../application/tasks');
+const { saveTask, getTasks, getTaskByNumber, getTasksByPlannedDate, updateTask } = require('../../application/tasks');
 const { getCategoryNames }  = require('../../application/categories');
 const { getGoalsWithProgress } = require('../../application/goals');
 const { getSettings }       = require('../../application/settings');
+const { getPlanRecommendations } = require('../../application/assistant');
+const { localNow }          = require('../../shared/helpers');
+const { fuzzyMatch }        = require('../../shared/fuzzy');
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -46,15 +51,58 @@ function parseBody(req) {
 
 const HELP_TEXT =
   'Вы можете: сказать задачу — и я запишу. ' +
-  'Спросить "мои задачи" — покажу список. ' +
-  'Сказать "план на сегодня" — задачи на сегодня. ' +
-  'Сказать "задача 3 выполнена" — отмечу как готовую.';
+  'Спросить "мои задачи" — покажу три главных. ' +
+  'Сказать "план на сегодня" — AI-приоритизация. ' +
+  'Сказать "что мне делать" — одна важная задача. ' +
+  'Сказать "что не сделал" — незавершённые за день. ' +
+  'Сказать "купить молоко готово" или "задача 3 выполнена" — отмечу.';
 
 function formatTaskList(tasks, header) {
   if (!tasks.length) return `${header}: задач нет.`;
-  const lines = tasks.slice(0, 5).map((t, i) => `${i + 1}. ${t.title}`);
-  const suffix = tasks.length > 5 ? ` И ещё ${tasks.length - 5}.` : '';
+  const lines = tasks.slice(0, 3).map((t, i) => `${i + 1}. ${t.title}`);
+  const suffix = tasks.length > 3 ? ` И ещё ${tasks.length - 3}.` : '';
   return `${header}: ${lines.join('. ')}.${suffix}`;
+}
+
+// ─── AI-брифинг: план на сегодня ─────────────────────────
+
+async function buildPlanText(userId, today) {
+  const planned = getTasksByPlannedDate(userId, today);
+  let suggestions = [];
+  try {
+    suggestions = await getPlanRecommendations(userId, today);
+  } catch (e) {
+    console.error('[alice] getPlanRecommendations error:', e.message);
+  }
+
+  if (!planned.length && !suggestions.length) {
+    return 'На сегодня задач нет. Скажите задачу — запишу.';
+  }
+
+  const allTasks = planned.length ? null : getTasks(userId, {});
+  const shownIds = new Set();
+  const top = [];
+
+  for (const t of planned) {
+    if (top.length >= 3) break;
+    top.push(t.title);
+    shownIds.add(t.id);
+  }
+
+  if (top.length < 3 && suggestions.length) {
+    const pool = allTasks ?? getTasks(userId, {});
+    for (const s of suggestions) {
+      if (top.length >= 3) break;
+      if (shownIds.has(s.id)) continue;
+      const task = pool.find(t => t.id === s.id);
+      if (task) { top.push(task.title); shownIds.add(s.id); }
+    }
+  }
+
+  const remaining = Math.max(0, planned.length + suggestions.length - shownIds.size);
+  const lines = top.map((title, i) => `${i + 1}. ${title}`).join('. ');
+  const suffix = remaining > 0 ? ` И ещё ${remaining}.` : '';
+  return `На сегодня: ${lines}.${suffix}`;
 }
 
 // ─── Обработка AI intent после parseIntent ────────────────
@@ -97,11 +145,13 @@ async function executeAliceIntent(res, userId, parsed) {
     }
 
     case 'open_plan': {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const { timezone } = getSettings(userId);
+      const todayStr = localNow(timezone);
       const date = parsed.date ?? todayStr;
-      const tasks = getTasks(userId, { plannedToday: date === todayStr });
+      const planned = getTasksByPlannedDate(userId, date);
       const header = date === todayStr ? 'На сегодня' : `На ${date}`;
-      return respond(res, formatTaskList(tasks, header));
+      if (date !== todayStr) return respond(res, formatTaskList(planned, header));
+      return respond(res, await buildPlanText(userId, todayStr));
     }
 
     default:
@@ -188,19 +238,60 @@ async function handleAlice(req, res) {
     return respond(res, formatTaskList(tasks, 'Ваши задачи'));
   }
 
-  if (/^(план|план на сегодня|задачи на сегодня|что на сегодня)/.test(command)) {
-    const tasks = getTasks(userId, { plannedToday: true });
-    return respond(res, formatTaskList(tasks, 'На сегодня'));
+  if (/^(план|план на сегодня|задачи на сегодня|что на сегодня|что у меня сегодня|утренний брифинг)/.test(command)) {
+    const { timezone } = getSettings(userId);
+    const today = localNow(timezone);
+    return respond(res, await buildPlanText(userId, today));
+  }
+
+  // «что мне делать» / «что сейчас делать» — одна задача от AI
+  if (/что (?:мне )?(?:сейчас )?делать|что важнее|самое важное|с чего начать/.test(command)) {
+    const { timezone } = getSettings(userId);
+    const today = localNow(timezone);
+    let suggestions = [];
+    try { suggestions = await getPlanRecommendations(userId, today); } catch (e) { /**/ }
+    if (suggestions.length) {
+      const pool = getTasks(userId, {});
+      const task = pool.find(t => t.id === suggestions[0].id);
+      if (task) return respond(res, `Сейчас сделайте: ${task.title}.`);
+    }
+    const planned = getTasksByPlannedDate(userId, today);
+    if (planned.length) return respond(res, `Сейчас сделайте: ${planned[0].title}.`);
+    const all = getTasks(userId, {});
+    if (all.length) return respond(res, `Сейчас сделайте: ${all[0].title}.`);
+    return respond(res, 'Активных задач нет. Скажите задачу — запишу.');
+  }
+
+  // «что не сделал сегодня» / «что не успел»
+  if (/что (?:я )?(?:не сделал|не успел|не выполнил)|незавершён|что осталось сегодня/.test(command)) {
+    const { timezone } = getSettings(userId);
+    const today = localNow(timezone);
+    const remaining = getTasksByPlannedDate(userId, today);
+    if (!remaining.length) return respond(res, 'На сегодня всё выполнено или задач не было.');
+    return respond(res, formatTaskList(remaining, 'Не сделано сегодня'));
   }
 
   // «задача 5 готова» / «отметь 5» / «5 готова»
-  const doneMatch = command.match(/задача\s+(\d+)\s+(готова|выполнена|сделана|готово)|отметь\s+(\d+)|(\d+)\s+(готова|выполнена|сделана|готово)/);
+  const doneMatch = command.match(/задача\s+(\d+)\s+(?:готова|выполнена|сделана|готово)|отметь\s+(\d+)|(\d+)\s+(?:готова|выполнена|сделана|готово)/);
   if (doneMatch) {
-    const num  = parseInt(doneMatch[1] ?? doneMatch[3] ?? doneMatch[4], 10);
+    const num  = parseInt(doneMatch[1] ?? doneMatch[2] ?? doneMatch[3], 10);
     const task = getTaskByNumber(userId, num);
     if (!task) return respond(res, `Задача с номером ${num} не найдена.`);
     updateTask(task.id, { status: 'done' }, userId);
     return respond(res, `Отлично! Задача выполнена: ${task.title}.`);
+  }
+
+  // «отметь купить молоко» / «купить молоко готова» — fuzzy по названию
+  const doneTitleByVerb = command.match(/^(?:отметь|выполни|закрой)\s+(.+)$/);
+  const doneTitleBySuffix = command.match(/^(.+)\s+(?:готова|выполнена|сделана|готово)$/);
+  const titleQuery = (doneTitleByVerb?.[1] ?? doneTitleBySuffix?.[1] ?? '').trim();
+  if (titleQuery && !/^\d+$/.test(titleQuery)) {
+    const tasks = getTasks(userId, {});
+    const found = tasks.find(t => fuzzyMatch(t.title, titleQuery));
+    if (found) {
+      updateTask(found.id, { status: 'done' }, userId);
+      return respond(res, `Отлично! Задача выполнена: ${found.title}.`);
+    }
   }
 
   // Всё остальное → AI parser
